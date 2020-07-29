@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MergedBitmapType2.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.bitmap</a> &gt; <span class="el_source">MergedBitmapType2.scala</span></div><h1>MergedBitmapType2.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.bitmap
+
+/*
+* For this bitmap implementation to work you need to make a file containing all the attributes for which the bitmaps are to be made.
+* The file is to be uploaded in a S3 path.
+* We will use the regular bitmap generation step along with an extra parameter called attributes_path
+*
+* attributes_path will contain the S3 file path that was uploaded.
+*
+* The file format should be like -
+
+    attribute_id=ilm_buyins_online_0
+    attribute_id=ilm_buyins_online_1
+    attribute_id=ilm_buyins_online_2
+    attribute_id=ilm_buyins_online_3
+    attribute_id=ilm_buyins_online_4
+
+* */
+
+import java.io.FileNotFoundException
+import com.mbww.cia.common.Spark._
+import com.mbww.cia.common.bitmap.BitmapFileFormat
+import com.mbww.cia.common.{Module, _}
+import org.apache.spark.sql.functions.col
+import org.apache.spark.sql.{DataFrame, SaveMode}
+import org.apache.spark.sql.types.IntegerType
+import org.apache.spark.storage.StorageLevel
+import org.json.JSONObject
+import org.slf4j.LoggerFactory
+
+
+<span class="nc" id="L32">class MergedBitmapType2 extends Module {</span>
+
+<span class="nc bnc" id="L34" title="All 44 branches missed.">  case class DenormalizedEntity(denormalizedPath: String, denormalizedId: String, denormalizedFilterExpr: String)</span>
+<span class="nc bnc" id="L35" title="All 44 branches missed.">  case class InfobaseEntity(infobasePath: String, infobaseId: String, infobaseBitmapId: String)</span>
+<span class="nc bnc" id="L36" title="All 44 branches missed.">  case class CrosswalkEntity(crosswalkPath: String, crosswalkId: String, crosswalkConsumerPel: String)</span>
+<span class="nc bnc" id="L37" title="All 32 branches missed.">  case class ProcessingInfo(repartitionSize: Int, batchSize: Int, threadCount: Int)</span>
+
+<span class="nc" id="L39">  val logger = LoggerFactory.getLogger(this.getClass())</span>
+
+  def generate(attributesPath: String,
+               denormalizedPath: String,
+               outputPath: String,
+               denormalizedId: String,
+               infobaseBitmapId: String,
+               attributeId: String): Unit = {
+
+<span class="nc" id="L48">    val bitmapWriter = (df: DataFrame) =&gt; {</span>
+<span class="nc" id="L49">      df.select(BitmapFileFormat.IndexColumn, attributeId).repartition(1)</span>
+<span class="nc" id="L50">        .write</span>
+<span class="nc" id="L51">        .mode(SaveMode.Append)</span>
+<span class="nc" id="L52">        .format(classOf[BitmapFileFormat].getName)</span>
+<span class="nc" id="L53">        .option(&quot;mapreduce.fileoutputcommitter.algorithm.version&quot;, &quot;2&quot;)</span>
+<span class="nc" id="L54">        .option(&quot;mapreduce.fileoutputcommitter.marksuccessfuljobs&quot;, &quot;false&quot;)</span>
+<span class="nc" id="L55">        .partitionBy(attributeId)</span>
+<span class="nc" id="L56">        .save(outputPath)</span>
+    }
+
+<span class="nc" id="L59">    val childListOfAttributes = spark.read.csv(attributesPath).rdd.map(r =&gt; r(0).asInstanceOf[String]).collect().toList</span>
+
+<span class="nc" id="L61">    var parentListOfAttributes: List[List[String]] = null</span>
+<span class="nc" id="L62">    parentListOfAttributes = childListOfAttributes.grouped(2000).toList</span>
+
+<span class="nc bnc" id="L64" title="All 2 branches missed.">    parentListOfAttributes.par.foreach(child =&gt; {</span>
+<span class="nc bnc" id="L65" title="All 2 branches missed.">      child.foreach(element =&gt; {</span>
+<span class="nc" id="L66">        logger.info(&quot;Element Under Processing ==&gt; &quot; + element)</span>
+<span class="nc" id="L67">        try {</span>
+<span class="nc" id="L68">          val elementData = spark.read.load(s&quot;$denormalizedPath/$element/&quot;)</span>
+<span class="nc" id="L69">          val extractedElement = element.split(&quot;=&quot;)(1)</span>
+<span class="nc" id="L70">          elementData.createOrReplaceTempView(&quot;element_view&quot;)</span>
+<span class="nc" id="L71">          val requiredData = spark.sql(s&quot;select $denormalizedId, '$extractedElement' as $attributeId from element_view&quot;)</span>
+<span class="nc" id="L72">          val df = requiredData.withColumn(BitmapFileFormat.IndexColumn, requiredData(infobaseBitmapId).cast(IntegerType))</span>
+<span class="nc" id="L73">          bitmapWriter(df)</span>
+        }
+        catch {
+          case noSuchFile: FileNotFoundException =&gt;
+<span class="nc" id="L77">            logger.info(element + &quot;not found&quot;)</span>
+          case ex: Exception =&gt;
+<span class="nc" id="L79">            logger.info(&quot;Exception occured&quot; + ex)</span>
+        }
+      })
+    })
+  }
+
+  def generate(attributesPath: String,
+               denormalizedEntity: DenormalizedEntity,
+               infobaseEntity: InfobaseEntity,
+               crosswalkEntity: CrosswalkEntity,
+               attributeId: String,
+               outputPath: String,
+               processingInfo: ProcessingInfo
+              ): Unit = {
+
+<span class="nc" id="L94">    val infobase = spark.read.parquet(infobaseEntity.infobasePath)</span>
+
+<span class="nc bnc" id="L96" title="All 2 branches missed.">    val mappingKeys = if (!crosswalkEntity.crosswalkPath.isEmpty) {</span>
+<span class="nc" id="L97">      val crosswalk = spark.read.parquet(crosswalkEntity.crosswalkPath)</span>
+<span class="nc" id="L98">      crosswalk</span>
+<span class="nc" id="L99">        .join(infobase, crosswalk(crosswalkEntity.crosswalkConsumerPel) === infobase(infobaseEntity.infobaseId))</span>
+<span class="nc" id="L100">        .withColumn(Constants.MERGE_KEY, crosswalk(crosswalkEntity.crosswalkId))</span>
+<span class="nc" id="L101">        .persist(StorageLevel.MEMORY_ONLY)</span>
+    } else {
+<span class="nc" id="L103">      infobase</span>
+<span class="nc" id="L104">        .withColumn(Constants.MERGE_KEY, col(infobaseEntity.infobaseId))</span>
+<span class="nc" id="L105">        .persist(StorageLevel.MEMORY_ONLY)</span>
+    }
+
+<span class="nc" id="L108">    val bitmapWriter = (df: DataFrame) =&gt; {</span>
+<span class="nc" id="L109">      df.withColumn(BitmapFileFormat.IndexColumn, mappingKeys(infobaseEntity.infobaseBitmapId).cast(IntegerType))</span>
+<span class="nc" id="L110">        .select(BitmapFileFormat.IndexColumn, attributeId).repartition(1)</span>
+<span class="nc" id="L111">        .write</span>
+<span class="nc" id="L112">        .mode(SaveMode.Append)</span>
+<span class="nc" id="L113">        .format(classOf[BitmapFileFormat].getName)</span>
+<span class="nc" id="L114">        .option(&quot;mapreduce.fileoutputcommitter.algorithm.version&quot;, &quot;2&quot;)</span>
+<span class="nc" id="L115">        .option(&quot;mapreduce.fileoutputcommitter.marksuccessfuljobs&quot;, &quot;false&quot;)</span>
+<span class="nc" id="L116">        .partitionBy(attributeId)</span>
+<span class="nc" id="L117">        .save(outputPath)</span>
+    }
+
+<span class="nc" id="L120">    val childListOfAttributes = spark.read.csv(attributesPath).rdd.map(r =&gt; r(0).asInstanceOf[String]).collect().toList</span>
+
+<span class="nc" id="L122">    var parentListOfAttributes: List[List[String]] = null</span>
+<span class="nc" id="L123">    parentListOfAttributes = childListOfAttributes.grouped(2000).toList</span>
+
+<span class="nc bnc" id="L125" title="All 2 branches missed.">    parentListOfAttributes.par.foreach(child =&gt; {</span>
+<span class="nc bnc" id="L126" title="All 2 branches missed.">      child.foreach(element =&gt; {</span>
+<span class="nc" id="L127">        logger.info(&quot;Element Under Processing ==&gt; &quot; + element)</span>
+<span class="nc" id="L128">        try {</span>
+<span class="nc" id="L129">          val elementData = spark.read.load(s&quot;${denormalizedEntity.denormalizedPath}/$element/&quot;)</span>
+<span class="nc" id="L130">          val extractedElement = element.split(&quot;=&quot;)(1)</span>
+<span class="nc" id="L131">          elementData.createOrReplaceTempView(&quot;element_view&quot;)</span>
+<span class="nc" id="L132">          val requiredData = spark.sql(s&quot;select ${denormalizedEntity.denormalizedId}, '$extractedElement' as $attributeId from element_view&quot;)</span>
+<span class="nc" id="L133">          val joined = requiredData.join(mappingKeys, mappingKeys(Constants.MERGE_KEY) === requiredData(denormalizedEntity.denormalizedId), &quot;inner&quot;)</span>
+<span class="nc" id="L134">          bitmapWriter(joined)</span>
+        }
+        catch {
+          case noSuchFile: FileNotFoundException =&gt;
+<span class="nc" id="L138">            logger.info(element + &quot;not found&quot;)</span>
+          case ex: Exception =&gt;
+<span class="nc" id="L140">            logger.info(&quot;Exception occured&quot; + ex)</span>
+        }
+      })
+    })
+  }
+
+<span class="nc" id="L146">  override def run(args: JSONObject): Unit = {</span>
+
+<span class="nc" id="L148">    val attributesPath = args.getString(&quot;attributes_path&quot;)</span>
+
+<span class="nc" id="L150">    val denormalizedPath = args.getString(&quot;denormalized_path&quot;)</span>
+<span class="nc" id="L151">    val denormalizedId = args.getString(&quot;denormalized_id&quot;)</span>
+<span class="nc" id="L152">    val denormalizedFilterExpr = args.getString(&quot;denormalized_filter_expr&quot;)</span>
+
+<span class="nc" id="L154">    val denormalizedEntity = DenormalizedEntity(denormalizedPath,denormalizedId,denormalizedFilterExpr)</span>
+
+<span class="nc" id="L156">    val infobasePath = args.getString(&quot;infobase_path&quot;)</span>
+<span class="nc" id="L157">    val infobaseId = args.getString(&quot;infobase_id&quot;)</span>
+<span class="nc" id="L158">    val infobaseBitmapId = args.getString(&quot;infobase_bitmap_id&quot;)</span>
+
+<span class="nc" id="L160">    val infobaseEntity = InfobaseEntity(infobasePath,infobaseId,infobaseBitmapId)</span>
+
+<span class="nc" id="L162">    val crosswalkPath = args.getString(&quot;crosswalk_path&quot;)</span>
+<span class="nc" id="L163">    val crosswalkId = args.getString(&quot;crosswalk_id&quot;)</span>
+<span class="nc" id="L164">    val crosswalkConsumerPel = args.getString(&quot;crosswalk_consumer_pel&quot;)</span>
+
+<span class="nc" id="L166">    val crosswalkEntity = CrosswalkEntity(crosswalkPath, crosswalkId, crosswalkConsumerPel)</span>
+
+<span class="nc" id="L168">    val partitionAttributeId = args.getString(&quot;partition_attribute_id&quot;)</span>
+
+<span class="nc" id="L170">    val outputPath = args.getString(&quot;output_path&quot;)</span>
+
+<span class="nc" id="L172">    val repartitionSize = args.getOrElse[Int](&quot;repartitionSize&quot;, 0)</span>
+<span class="nc" id="L173">    val batchSize = args.getOrElse[Int](&quot;batch_size&quot;, 0)</span>
+<span class="nc" id="L174">    val threadCount = args.getOrElse[Int](&quot;thread_count&quot;, 1)</span>
+<span class="nc" id="L175">    val joinWithKeys = args.getOrElse[Int](&quot;joinWithKeys&quot;, 0)</span>
+
+<span class="nc" id="L177">    val processingInfo = ProcessingInfo(repartitionSize, batchSize, threadCount)</span>
+
+<span class="nc bnc" id="L179" title="All 2 branches missed.">    if (joinWithKeys.toInt == 0) {</span>
+<span class="nc" id="L180">      generate(</span>
+<span class="nc" id="L181">        attributesPath,</span>
+<span class="nc" id="L182">        denormalizedPath,</span>
+<span class="nc" id="L183">        outputPath,</span>
+<span class="nc" id="L184">        denormalizedId,</span>
+<span class="nc" id="L185">        infobaseBitmapId,</span>
+<span class="nc" id="L186">        partitionAttributeId)</span>
+    }
+
+<span class="nc bnc" id="L189" title="All 2 branches missed.">    else if (joinWithKeys.toInt == 1) {</span>
+<span class="nc" id="L190">      generate(</span>
+<span class="nc" id="L191">        attributesPath,</span>
+<span class="nc" id="L192">        denormalizedEntity,</span>
+<span class="nc" id="L193">        infobaseEntity,</span>
+<span class="nc" id="L194">        crosswalkEntity,</span>
+<span class="nc" id="L195">        partitionAttributeId,</span>
+<span class="nc" id="L196">        outputPath,</span>
+<span class="nc" id="L197">        processingInfo</span>
+        )
+    }
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

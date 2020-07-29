@@ -1,0 +1,245 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>InfobaseProfileReportValidation.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.qa.profile.report</a> &gt; <span class="el_source">InfobaseProfileReportValidation.scala</span></div><h1>InfobaseProfileReportValidation.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.qa.profile.report
+
+import com.mbww.cia.common.Module
+import com.mbww.cia.common.Spark._
+import com.mbww.cia.core.exception.MismatchException
+import com.mbww.cia.dev.profile.reports.{CrosswalkIdMatcher, DisplayName2ColumnMatcher, OutputColumn, OutputColumnHelper}
+import org.apache.spark.sql.{Column, DataFrame}
+import org.apache.spark.sql.functions._
+import org.json.JSONObject
+
+
+<span class="pc" id="L12">class InfobaseProfileReportValidation extends  Module</span>
+  with CrosswalkIdMatcher
+  with DisplayName2ColumnMatcher
+  with OutputColumnHelper{
+
+  //val displayNameDF_Expected_Cols = Array(&quot;Display Name&quot;,&quot;Attribute Id&quot;)
+<span class="fc" id="L18">  val outputSpecDF_Expected_Cols = Array(&quot;Attribute Id&quot;)</span>
+<span class="fc" id="L19">  val infobaseJPDF_Expected_Cols = Array(&quot;acxiom_mbid&quot;,&quot;acx_id&quot;,&quot;locality&quot;,&quot;prefecture&quot;,&quot;post_code&quot;,&quot;gender&quot;,&quot;individual_age&quot;,&quot;age_range_2_years&quot;,&quot;age_range_5_years&quot;,&quot;age_range_standard&quot;,&quot;undeliverable_address_flag&quot;,&quot;suppression_flag&quot;,&quot;dwelling_unit_type&quot;,&quot;number_of_children_aged_13_18&quot;,&quot;number_of_children_under_12&quot;,&quot;number_of_children_in_the_household&quot;,&quot;number_of_people_in_the_household&quot;,&quot;upper_income_households&quot;,&quot;metro_affluent_high_rises&quot;,&quot;high_tax_payer&quot;,&quot;lions_club_member&quot;,&quot;occupation_accountant&quot;,&quot;occupation_dentist&quot;,&quot;occupation_doctor&quot;,&quot;occupation_lawyer&quot;,&quot;mail_order_purchaser_clothing&quot;,&quot;mail_order_purchaser_cosmetics&quot;,&quot;mail_order_purchaser_diet_products&quot;,&quot;mail_order_purchaser_household_appliances&quot;,&quot;mail_order_purchaser_food&quot;,&quot;mail_order_purchaser_exercise_equipment&quot;,&quot;mail_order_purchaser_health_food&quot;,&quot;mail_order_purchaser_jewelry&quot;,&quot;mail_order_purchaser_kimono&quot;,&quot;mail_order_purchaser_learning_material&quot;,&quot;mail_order_purchaser_premium_brand&quot;,&quot;mail_order_purchaser_sporting_goods&quot;,&quot;interest_beauty_and_health&quot;,&quot;interest_classical_arts&quot;,&quot;interest_health_and_medicine&quot;,&quot;interest_language&quot;,&quot;has_a_second_job&quot;,&quot;sweepstakes_contest_automobile&quot;,&quot;sweepstakes_contest_cosmetics&quot;,&quot;sweepstakes_contest_clothing&quot;,&quot;sweepstakes_contest_drinks&quot;,&quot;sweepstakes_contest_others&quot;,&quot;area_income_indicator&quot;,&quot;urbanicity&quot;,&quot;presence_of_email_flag&quot;,&quot;presence_of_mobile_phone_flag&quot;,&quot;presence_of_landline_or_unknown_phone_flag&quot;,&quot;presence_of_full_name_flag&quot;,&quot;presence_of_family_name_only_flag&quot;,&quot;presence_of_household_address_flag&quot;,&quot;presence_of_address_postal_code_flag&quot;,&quot;presence_of_date_of_birth_flag&quot;,&quot;presence_of_mobile_advertising_identification_number_flag&quot;,&quot;presence_of_tax_identification_number_flag&quot;,&quot;presence_of_address_secondary_info_flag&quot;)</span>
+<span class="fc" id="L20">  val crosswalkDF_Expected_Cols = Array(&quot;acx_id&quot;,&quot;pelid&quot;)</span>
+<span class="fc" id="L21">  val uniqueIdDF_Expected_Cols = Array(&quot;stringId&quot;,&quot;numericId&quot;)</span>
+<span class="pc" id="L22">  val finalDF_Expected_Cols = Array(&quot;numericId&quot;,&quot;age_range_5_years_18&quot;, &quot;age_range_5_years_25&quot;, &quot;age_range_5_years_30&quot;, &quot;age_range_5_years_35&quot;, &quot;age_range_5_years_40&quot;, &quot;age_range_5_years_45&quot;, &quot;age_range_5_years_50&quot;, &quot;age_range_5_years_55&quot;, &quot;age_range_5_years_60&quot;, &quot;age_range_5_years_65&quot;, &quot;age_range_5_years_70&quot;, &quot;age_range_5_years_75&quot;, &quot;dwelling_unit_type_H&quot;, &quot;dwelling_unit_type_M&quot;, &quot;gender_F&quot;,&quot;gender_M&quot;,&quot;gender_U&quot;,&quot;has_a_second_job_1&quot;,&quot;high_tax_payer_1&quot;,&quot;interest_beauty_and_health_1&quot;,&quot;interest_classical_arts_1&quot;,&quot;interest_health_and_medicine_1&quot;,&quot;interest_language_1&quot;,&quot;lions_club_member_1&quot;,&quot;mail_order_purchaser_clothing_1&quot;,&quot;mail_order_purchaser_cosmetics_1&quot;,&quot;mail_order_purchaser_diet_products_1&quot;,&quot;mail_order_purchaser_exercise_equipment_1&quot;,&quot;mail_order_purchaser_food_1&quot;,&quot;mail_order_purchaser_health_food_1&quot;,&quot;mail_order_purchaser_household_appliances_1&quot;,&quot;mail_order_purchaser_jewelry_1&quot;,&quot;mail_order_purchaser_kimono_1&quot;,&quot;mail_order_purchaser_learning_material_1&quot;,&quot;mail_order_purchaser_premium_brand_1&quot;,&quot;mail_order_purchaser_sporting_goods_1&quot;,&quot;metro_affluent_high_rises_1&quot;,&quot;number_of_children_in_the_household_0&quot;,&quot;number_of_children_in_the_household_1&quot;,&quot;number_of_children_in_the_household_2&quot;,&quot;number_of_children_in_the_household_3&quot;,&quot;number_of_children_in_the_household_4&quot;,&quot;number_of_children_in_the_household_5&quot;,&quot;number_of_children_in_the_household_6&quot;,&quot;number_of_children_in_the_household_8&quot;,&quot;number_of_people_in_the_household_1&quot;,&quot;number_of_people_in_the_household_10&quot;,&quot;number_of_people_in_the_household_2&quot;,&quot;number_of_people_in_the_household_3&quot;,&quot;number_of_people_in_the_household_4&quot;,&quot;number_of_people_in_the_household_5&quot;,&quot;number_of_people_in_the_household_6&quot;,&quot;number_of_people_in_the_household_7&quot;,&quot;number_of_people_in_the_household_8&quot;,&quot;number_of_people_in_the_household_9&quot;,&quot;occupation_accountant_1&quot;,&quot;occupation_dentist_1&quot;,&quot;occupation_doctor_1&quot;,&quot;occupation_lawyer_1&quot;,&quot;sweepstakes_contest_automobile_1&quot;,&quot;sweepstakes_contest_clothing_1&quot;,&quot;sweepstakes_contest_cosmetics_1&quot;,&quot;sweepstakes_contest_drinks_1&quot;,&quot;sweepstakes_contest_others_1&quot;,&quot;upper_income_households_1&quot;)</span>
+
+  def generateReportInfobaseJPValidation(inputPath: String,
+                                         crosswalkPath: String,
+                                         numericIdsPath: String,
+                                         outputSpecPath: String,
+                                         outputPath: String): Unit = {
+
+    //load the input data
+<span class="fc" id="L31">    val infobaseJPDF = spark.read.parquet(inputPath)</span>
+<span class="fc" id="L32">    val crosswalkDF = spark.read.parquet(crosswalkPath)</span>
+<span class="fc" id="L33">    val uniqueIdDF = spark.read.parquet(numericIdsPath)</span>
+
+<span class="fc" id="L35">    val outputSpecDF = spark.read</span>
+<span class="fc" id="L36">      .option(&quot;sep&quot;, &quot;,&quot;)</span>
+<span class="fc" id="L37">      .option(&quot;inferSchema&quot;, &quot;true&quot;)</span>
+<span class="fc" id="L38">      .option(&quot;header&quot;, &quot;true&quot;)</span>
+<span class="fc" id="L39">      .csv(outputSpecPath)</span>
+
+    //checkColumnsInDF(displayNamesDF, displayNameDF_Expected_Cols)
+<span class="fc" id="L42">    checkColumnsInDF(outputSpecDF, outputSpecDF_Expected_Cols)</span>
+<span class="fc" id="L43">    checkColumnsInDF(infobaseJPDF, infobaseJPDF_Expected_Cols)</span>
+<span class="fc" id="L44">    checkColumnsInDF(crosswalkDF, crosswalkDF_Expected_Cols)</span>
+<span class="fc" id="L45">    checkColumnsInDF(uniqueIdDF, uniqueIdDF_Expected_Cols)</span>
+
+    //obtain the actual column names for the output
+    //val outputColumns = getColumnNamesFromDisplayNames(displayNamesDF, outputSpecDF)
+
+    //get the numerical ids for the input records
+<span class="fc" id="L51">    val withNumericIds = getNumericIds(infobaseJPDF, crosswalkDF, uniqueIdDF)</span>
+
+    //get the output columns configuration to create the final output
+    //val outputColumnsConfig = fromOutputSpec(outputColumns)
+<span class="fc" id="L55">    val outputColumnsConfig = fromOutputSpec(outputSpecDF)</span>
+
+    //get the select columns to transform the input into the expected output
+<span class="fc" id="L58">    val selectColumns = getOutputSelectColumns(outputColumnsConfig)</span>
+
+    //compute the raw output (with duplicates)
+<span class="fc" id="L61">    val rawOutput = computeRawOutput(withNumericIds, selectColumns)</span>
+
+    //Deal with duplicate records
+<span class="fc" id="L64">    val deDupOutput = deduplicateRecords(rawOutput, outputColumnsConfig)</span>
+
+<span class="fc" id="L66">    val deDupOutput_Cols = deDupOutput.columns diff Array(&quot;numericId&quot;)</span>
+
+<span class="fc" id="L68">    validateByteColumns(deDupOutput,deDupOutput_Cols)</span>
+<span class="fc" id="L69">    validateOutput(deDupOutput,outputPath)</span>
+  }
+
+  def getOutputSelectColumns(outputColumns: Array[OutputColumn]): Seq[Column] = {
+<span class="fc" id="L73">    outputColumns.map{ outputSpec =&gt;</span>
+<span class="fc" id="L74">      when(col(outputSpec.inputColName) === lit(outputSpec.value),</span>
+<span class="fc" id="L75">        lit(1)).otherwise(lit(0))</span>
+<span class="fc" id="L76">        .cast(&quot;byte&quot;)</span>
+<span class="fc" id="L77">        .as(outputSpec.outputColName)</span>
+<span class="fc" id="L78">    }.toSeq</span>
+  }
+
+  def computeRawOutput(df: DataFrame, select: Seq[Column]): DataFrame = {
+<span class="fc" id="L82">    val selectColumns = Seq(col(&quot;numericId&quot;).cast(&quot;bigint&quot;).as(&quot;numericId&quot;)) ++ select</span>
+<span class="fc" id="L83">    df.select(selectColumns:_*)</span>
+  }
+
+  protected def deduplicateRecords(df: DataFrame, outputColumns: Array[OutputColumn]): DataFrame = {
+<span class="fc" id="L87">    val groupedCols = outputColumns.map{ outputSpec =&gt;</span>
+<span class="fc" id="L88">      when(sum(col(outputSpec.outputColName)) &gt; 1, lit(1))</span>
+<span class="fc" id="L89">        .otherwise(sum(col(outputSpec.outputColName)))</span>
+<span class="fc" id="L90">        .cast(&quot;byte&quot;)</span>
+<span class="fc" id="L91">        .as(outputSpec.outputColName)</span>
+<span class="fc" id="L92">    }.toSeq</span>
+
+<span class="fc" id="L94">    df.groupBy(col(&quot;numericId&quot;)).agg(groupedCols.head, groupedCols.tail:_*)</span>
+  }
+
+<span class="fc" id="L97">  def validateByteColumns(df: DataFrame, arr_Columns: Array[String]): Unit = {</span>
+
+<span class="fc" id="L99">    println(&quot;Entered Function validateByteColumns =&gt; &quot;)</span>
+<span class="fc" id="L100">    val dtypes = df.dtypes</span>
+
+<span class="fc" id="L102">    val colNames = Array.ofDim[String](dtypes.size)</span>
+<span class="fc" id="L103">    val colTypes = Array.ofDim[String](dtypes.size)</span>
+
+<span class="pc" id="L105">    for(x &lt;- 0 until dtypes.size){</span>
+<span class="pc bpc" id="L106" title="1 of 2 branches missed.">      var (colNm,colType) = dtypes(x)</span>
+<span class="fc" id="L107">      colNames(x) = colNm</span>
+<span class="fc" id="L108">      colTypes(x) = colType</span>
+    }
+
+<span class="pc bpc" id="L111" title="1 of 2 branches missed.">    if(colNames.size &gt;= arr_Columns.size){</span>
+
+<span class="pc" id="L113">      for(x &lt;- 0 until colNames.size){</span>
+
+<span class="pc bpc" id="L115" title="1 of 2 branches missed.">        for(y &lt;- 0 until arr_Columns.size){</span>
+<span class="pc bpc" id="L116" title="3 of 6 branches missed.">          if(colNames(x) == arr_Columns(y)){</span>
+<span class="fc" id="L117">            val check = colTypes(x).toLowerCase.contains(&quot;byte&quot;)</span>
+<span class="pc bpc" id="L118" title="1 of 2 branches missed.">            if(check == false){</span>
+<span class="nc" id="L119">              println(&quot;=======&gt; Expected Column isnt of Type Byte | Column Name =&gt; &quot;+arr_Columns(y))</span>
+<span class="nc" id="L120">              throw new RuntimeException(</span>
+<span class="nc" id="L121">                s&quot;=======&gt; Expected Column isnt of Type Byte | Column Name =&gt; ${arr_Columns(y)}&quot;)</span>
+            }
+          }
+        }
+      }
+    }else{
+<span class="nc" id="L127">      println(&quot;Input columns are incorrect and doesnt match with the columns of the input DataFrame&quot;)</span>
+    }
+  }
+
+<span class="fc" id="L131">  def validateOutput(df: DataFrame, output_Path: String): Boolean = {</span>
+
+<span class="fc" id="L133">    val output_DF = spark.read.parquet(output_Path: String)</span>
+<span class="fc" id="L134">    val output_Count = output_DF.count()</span>
+
+<span class="fc" id="L136">    println(&quot;Value of output_Count =&gt; &quot;+output_Count)</span>
+
+<span class="fc" id="L138">    val expectedCount = df.count()</span>
+
+<span class="fc" id="L140">    println(&quot;Value of expectedCount =&gt; &quot;+expectedCount)</span>
+
+<span class="pc bpc" id="L142" title="1 of 2 branches missed.">    if(output_Count == expectedCount){</span>
+<span class="fc" id="L143">      true</span>
+    }else{
+
+<span class="nc" id="L146">      throw new RuntimeException(</span>
+<span class="nc" id="L147">        s&quot;Count of Denormalized Data: ${expectedCount}  is not matching with expected actual profile-data-store count ${output_Count}&quot;)</span>
+      false
+    }
+  }
+
+<span class="fc" id="L152">  def checkColumnsInDF(df: DataFrame, expected_Cos: Array[String]): Boolean = {</span>
+
+<span class="fc" id="L154">    println(&quot;Entered Function : checkColumnsInDF&quot;)</span>
+<span class="fc" id="L155">    val df_Cols = df.columns</span>
+<span class="fc" id="L156">    val checkCols = expected_Cos diff df_Cols</span>
+
+<span class="pc bpc" id="L158" title="1 of 2 branches missed.">    if(checkCols.size == 0)</span>
+<span class="fc" id="L159">      true</span>
+    else{
+<span class="nc" id="L161">      false</span>
+<span class="nc" id="L162">      throw new RuntimeException(&quot;Expected Columns not found in DF&quot;)</span>
+    }
+
+  }
+
+  def bitmapCountValidation(outputPath: String, outputSpecPath: String,bitmapColsPath: String):Boolean = {
+<span class="fc" id="L168">    val parquet_Df = spark.read.parquet(outputPath)</span>
+<span class="fc" id="L169">    val spec_Df = spark.read.option(&quot;header&quot;, &quot;true&quot;).csv(outputSpecPath)</span>
+<span class="fc" id="L170">    var bitmap_Df = spark.read.option(&quot;delimiter&quot;, &quot;\t&quot;).option(&quot;header&quot;, &quot;true&quot;).csv(bitmapColsPath)</span>
+<span class="fc" id="L171">    val parquetColumn = parquet_Df.columns</span>
+<span class="fc" id="L172">    val display_Spec = spec_Df.select(&quot;Attribute Id&quot;).collect.map(row =&gt; row.getString(0))</span>
+<span class="pc bpc" id="L173" title="1 of 2 branches missed.">    if (parquetColumn.length == display_Spec.length + 1) {</span>
+<span class="fc" id="L174">      println(&quot;spec and parquet column count match&quot;)</span>
+    }
+    else {
+<span class="nc" id="L177">      println(&quot;spec and parquet Column count didn't match&quot;)</span>
+<span class="nc" id="L178">      throw new Exception(</span>
+<span class="nc" id="L179">        s&quot;=======&gt;Parquet and spec length didn't match&quot;)</span>
+    }
+<span class="fc" id="L181">    val bitmap_Df1 = bitmap_Df.select(&quot;Attribute Id&quot;, &quot;MBID count&quot;)</span>
+<span class="fc" id="L182">    val list1 = parquetColumn.toList</span>
+<span class="fc" id="L183">    val bitmapCheck = bitmap_Df1.filter(col(&quot;Attribute Id&quot;).isin(list1: _*))</span>
+<span class="fc" id="L184">    val attrId = bitmapCheck.select(&quot;Attribute Id&quot;).collect().mkString(&quot;,&quot;).replace(&quot;[&quot;, &quot;&quot;).replace(&quot;]&quot;, &quot;&quot;).split(&quot;,&quot;)</span>
+<span class="fc" id="L185">    val mbidCount = bitmapCheck.select(&quot;MBID Count&quot;).collect().mkString(&quot;,&quot;).replace(&quot;[&quot;, &quot;&quot;).replace(&quot;]&quot;, &quot;&quot;).split(&quot;,&quot;)</span>
+<span class="fc bfc" id="L186" title="All 2 branches covered.">    val filterParquet = parquetColumn.filter(!_.contains(&quot;numericId&quot;))</span>
+<span class="fc" id="L187">    val sortFilterBitmap = attrId.sortWith(_ &lt; _)</span>
+<span class="fc" id="L188">    val sortParquetCol = filterParquet.sortWith(_ &lt; _)</span>
+<span class="pc bpc" id="L189" title="4 of 6 branches missed.">    if (sortFilterBitmap.deep == sortParquetCol.deep) {</span>
+<span class="fc" id="L190">      println(&quot;parquet and Bitmap columns  Matched&quot;)</span>
+
+    }
+    else {
+<span class="nc" id="L194">      println(&quot;parquet and bitmap columns didn't Match&quot;)</span>
+<span class="nc" id="L195">      throw new Exception(</span>
+<span class="nc" id="L196">        s&quot;=======&gt;Parquet and bitmap columns didn't match&quot;)</span>
+    }
+<span class="pc" id="L198">    for(i &lt;- 0 until attrId.size)</span>
+<span class="fc" id="L199">    {</span>
+<span class="fc" id="L200">      println(&quot;For Attribute ID =&gt; &quot; + attrId(i))</span>
+<span class="fc" id="L201">      println(&quot;expectedCount =&gt; &quot; + mbidCount(i))</span>
+<span class="fc" id="L202">      val actualCount = parquet_Df.select(attrId(i)).filter(col(attrId(i)) === &quot;1&quot;).count()</span>
+<span class="fc" id="L203">      println(&quot;actualCount =&gt; &quot; + actualCount)</span>
+<span class="pc bpc" id="L204" title="1 of 2 branches missed.">      if (actualCount == mbidCount(i).toInt) {</span>
+<span class="fc" id="L205">        println(&quot;==&gt;Count Matched&quot;)</span>
+      }
+      else{
+<span class="nc" id="L208">        println(&quot;==&gt;Count Didn't Match&quot;)</span>
+<span class="nc" id="L209">        throw new RuntimeException(&quot;Runtime error&quot; + attrId(i) + &quot; | Actual Count =&gt; &quot; + actualCount + &quot; | Expected Count =&gt; &quot; + mbidCount(i).toInt)</span>
+      }
+
+    }
+
+<span class="fc" id="L214">    true</span>
+  }
+
+
+  override def run(args: JSONObject): Unit = {
+<span class="fc" id="L219">    val inputPath = args.getString(&quot;input_path&quot;)</span>
+<span class="fc" id="L220">    val crosswalkPath = args.getString(&quot;crosswalk_path&quot;)</span>
+<span class="fc" id="L221">    val numericIdsPath = args.getString(&quot;unique_keys_path&quot;)</span>
+    //val displayColsPath = args.getString(&quot;display_columns_path&quot;)
+<span class="fc" id="L223">    val outputSpecPath = args.getString(&quot;output_spec_path&quot;)</span>
+<span class="fc" id="L224">    val outputPath = args.getString(&quot;output_path&quot;)</span>
+<span class="fc" id="L225">    val bitmapColsPath = args.getString(&quot;bitmap_columns_path&quot;)</span>
+
+    /*    generateReportInfobaseJPValidation(inputPath,
+          crosswalkPath,
+          numericIdsPath,
+          displayColsPath,
+          outputSpecPath,
+          outputPath)    */
+
+<span class="fc" id="L234">    generateReportInfobaseJPValidation(inputPath,</span>
+<span class="fc" id="L235">      crosswalkPath,</span>
+<span class="fc" id="L236">      numericIdsPath,</span>
+<span class="fc" id="L237">      outputSpecPath,</span>
+<span class="fc" id="L238">      outputPath)</span>
+
+<span class="fc" id="L240">    bitmapCountValidation(outputPath,outputSpecPath,bitmapColsPath)</span>
+
+  }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

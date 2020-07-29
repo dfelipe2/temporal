@@ -1,0 +1,447 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Tools.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.common.utility</a> &gt; <span class="el_source">Tools.scala</span></div><h1>Tools.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.common.utility
+
+import org.apache.spark.sql.expressions.Window
+import org.apache.spark.sql.{Column, DataFrame, SaveMode, types}
+import org.apache.spark.sql.functions._
+import java.time.{LocalDateTime, ZoneId}
+import java.time.format.DateTimeFormatter
+
+import com.amazon.deequ.suggestions.{ConstraintSuggestionRunner, Rules}
+import org.apache.spark.sql.types.{StructField, _}
+
+import scala.collection.Seq
+import com.mbww.cia.common.Spark.{sc, spark}
+import org.apache.commons.lang3.text.WordUtils
+
+import scala.collection.mutable.{ArrayBuffer, ListBuffer}
+import org.apache.spark.sql.Row
+
+object Tools {
+  def getStructType(schema: String, schemaDelimiter: String): StructType = {
+<span class="fc" id="L21">    StructType(schema.split(schemaDelimiter).map(fieldName =&gt; {</span>
+<span class="fc bfc" id="L22" title="All 2 branches covered.">      if (fieldName contains &quot;:&quot;) {</span>
+<span class="fc" id="L23">        val tokens = fieldName.split(&quot;:&quot;)</span>
+<span class="fc" id="L24">        val column = tokens(0)</span>
+<span class="fc" id="L25">        val dataType = tokens(1)</span>
+<span class="pc" id="L26">        dataType match {</span>
+<span class="pc bpc" id="L27" title="1 of 2 branches missed.">          case &quot;string&quot; =&gt; StructField(column, StringType, nullable = true)</span>
+<span class="nc bnc" id="L28" title="All 2 branches missed.">          case &quot;int&quot; =&gt; StructField(column, IntegerType, nullable = true)</span>
+<span class="nc bnc" id="L29" title="All 2 branches missed.">          case &quot;date&quot; =&gt; StructField(column, DateType, nullable = true)</span>
+<span class="nc bnc" id="L30" title="All 2 branches missed.">          case &quot;long&quot; =&gt; StructField(column, LongType, nullable = true)</span>
+<span class="nc bnc" id="L31" title="All 2 branches missed.">          case &quot;timestamp&quot; =&gt; StructField(column, TimestampType, nullable = true)</span>
+<span class="nc bnc" id="L32" title="All 2 branches missed.">          case &quot;float&quot; =&gt; StructField(column, FloatType, nullable = true)</span>
+<span class="nc bnc" id="L33" title="All 2 branches missed.">          case &quot;double&quot; =&gt; StructField(column, DoubleType, nullable = true)</span>
+<span class="nc bnc" id="L34" title="All 2 branches missed.">          case &quot;decimal&quot; =&gt; StructField(column, DecimalType(10, 0), nullable = true)</span>
+        }
+      } else {
+<span class="fc" id="L37">        StructField(fieldName, StringType, nullable = true)</span>
+      }
+    }))
+  }
+
+
+<span class="nc" id="L43">  def getBooleanByte = udf((cl: Int) =&gt; {</span>
+<span class="nc" id="L44">    cl.asInstanceOf[Byte]</span>
+  })
+
+<span class="fc" id="L47">  implicit class ProfileReportsETL(df: DataFrame) extends Serializable {</span>
+
+    def batchPivot(values: Array[String],
+                   pivotColumn: String,
+                   aggColumn: String,
+                   aggExpr: Column,
+                   naFillVal: Long,
+                   batchSize: Int,
+<span class="nc" id="L55">                   callback: DataFrame =&gt; Unit): Unit = {</span>
+
+<span class="nc" id="L57">      val dfCount = df.count</span>
+<span class="nc" id="L58">      val winpiv = Window.orderBy(aggColumn)</span>
+<span class="nc" id="L59">      val newdf = df.withColumn(&quot;rowId&quot;, row_number().over(winpiv)).cache()</span>
+<span class="nc" id="L60">      var batchIdx = 0</span>
+
+<span class="nc bnc" id="L62" title="All 2 branches missed.">      while (batchIdx &lt; dfCount) {</span>
+<span class="nc" id="L63">        val pivotedBatchDf = newdf.filter(col(&quot;rowId&quot;).between(batchIdx, batchIdx + batchSize))</span>
+<span class="nc" id="L64">          .groupBy(aggColumn)</span>
+<span class="nc" id="L65">          .pivot(pivotColumn, values)</span>
+<span class="nc" id="L66">          .agg(aggExpr)</span>
+<span class="nc" id="L67">          .na.fill(naFillVal)</span>
+<span class="nc" id="L68">        callback(pivotedBatchDf)</span>
+<span class="nc" id="L69">        batchIdx += batchSize</span>
+      }
+    }
+
+    def batchPivotSql(values: Array[String],
+                      batchMaximum: Long,
+                      batchSizeArg: Long,
+<span class="fc" id="L76">                      callback: DataFrame =&gt; Unit): Unit = {</span>
+
+<span class="fc" id="L78">      val dfCount: Long = batchMaximum</span>
+<span class="fc" id="L79">      var batchIdx: Long = 0</span>
+<span class="fc" id="L80">      var batchSize: Long = batchSizeArg</span>
+<span class="fc bfc" id="L81" title="All 2 branches covered.">      while (batchIdx &lt; dfCount) {</span>
+<span class="fc" id="L82">        val pivotedBatchDf = df.filter(col(&quot;rowId&quot;).between(batchIdx, batchIdx + batchSize))</span>
+<span class="fc" id="L83">        pivotedBatchDf.createOrReplaceTempView(&quot;profilesfilter&quot;)</span>
+<span class="fc" id="L84">        var rowsSQL = &quot;&quot;</span>
+<span class="fc" id="L85">        for (col &lt;- values) {</span>
+<span class="fc" id="L86">          val caseString = &quot; ,cast (sum(CASE WHEN punch_code == '&quot; + col + &quot;' THEN '1' ELSE '0' END) as Byte) AS `&quot; + col + &quot;` &quot;</span>
+<span class="fc" id="L87">          rowsSQL += caseString</span>
+        }
+
+<span class="fc" id="L90">        val sqlPrefix = &quot;SELECT numericId&quot;</span>
+<span class="fc" id="L91">        val sqlSufix = &quot; FROM profilesfilter group by numericId&quot;</span>
+<span class="fc" id="L92">        val fullSQL = sqlPrefix + rowsSQL + sqlSufix</span>
+<span class="fc" id="L93">        val dfPart = spark.sql(fullSQL)</span>
+<span class="fc" id="L94">        callback(dfPart)</span>
+<span class="fc" id="L95">        batchIdx += batchSize</span>
+      }
+    }
+  }
+
+<span class="fc" id="L100">  val nullString = &quot;null_string&quot;</span>
+
+  def isNullString(s: String): Boolean = {
+<span class="pc bpc" id="L103" title="4 of 8 branches missed.">    s == null || s == nullString</span>
+  }
+
+<span class="fc" id="L106">  implicit class YouGovProfilesETL(df: DataFrame) extends Serializable {</span>
+
+    def unique(targetColumns: Seq[Column], lexicographicalOrder: Seq[Column]): DataFrame = {
+<span class="fc" id="L109">      val rowNumber = &quot;___rn___&quot;</span>
+<span class="fc" id="L110">      val winSpec = Window.partitionBy(targetColumns: _*).orderBy(lexicographicalOrder: _*)</span>
+<span class="fc" id="L111">      df.withColumn(rowNumber, row_number().over(winSpec))</span>
+<span class="fc" id="L112">        .filter(col(rowNumber) === 1)</span>
+<span class="fc" id="L113">        .drop(rowNumber)</span>
+    }
+
+    def deduplicateLong(): DataFrame = {
+<span class="fc" id="L117">      df.unique(</span>
+<span class="fc" id="L118">        Seq(col(&quot;yougov_id&quot;), col(&quot;definition_alias&quot;), col(&quot;value&quot;)),</span>
+<span class="fc" id="L119">        Seq(col(&quot;date&quot;).desc))</span>
+    }
+
+    def deduplicateCodes(): DataFrame = {
+<span class="fc" id="L123">      df.unique(</span>
+<span class="fc" id="L124">        Seq(col(&quot;definition_alias&quot;), col(&quot;value&quot;)),</span>
+<span class="fc" id="L125">        Seq(col(&quot;date&quot;).desc))</span>
+    }
+
+    def deduplicateSubvariables(): DataFrame = {
+<span class="fc" id="L129">      df.unique(</span>
+<span class="fc" id="L130">        Seq(col(&quot;definition_alias&quot;), col(&quot;subvariable_alias&quot;)),</span>
+<span class="fc" id="L131">        Seq(col(&quot;date&quot;).desc))</span>
+    }
+
+    def deduplicateDefinitions(): DataFrame = {
+<span class="fc" id="L135">      df.unique(</span>
+<span class="fc" id="L136">        Seq(col(&quot;alias&quot;)),</span>
+<span class="fc" id="L137">        Seq(col(&quot;date&quot;).desc))</span>
+    }
+
+    def deduplicateQuestions(): DataFrame = {
+<span class="fc" id="L141">      df.unique(</span>
+<span class="fc" id="L142">        Seq(col(&quot;parent_question_id&quot;), col(&quot;answered_question_id&quot;)),</span>
+<span class="fc" id="L143">        Seq(lit(1)))</span>
+    }
+
+    def addChildQuestionEntityName(): DataFrame = {
+
+<span class="fc" id="L148">      def extractEntityNameUDF = udf((name: String, entityName: String) =&gt; {</span>
+<span class="fc bfc" id="L149" title="All 2 branches covered.">        if (isNullString(entityName)) {</span>
+<span class="fc" id="L150">          val idx = name.lastIndexOf(&quot;:&quot;) + 1</span>
+<span class="fc" id="L151">          name.substring(idx)</span>
+        } else {
+<span class="fc" id="L153">          entityName</span>
+        }
+      })
+
+<span class="fc" id="L157">      df.withColumn(&quot;child_question_entity_name&quot;, extractEntityNameUDF(col(&quot;child_question_name&quot;), col(&quot;entity_name&quot;)))</span>
+    }
+
+    def addAnsweredQuestionID(): DataFrame = {
+<span class="fc" id="L161">      def questionIdUDF = udf((qid: String, subqid: String) =&gt; {</span>
+<span class="pc bpc" id="L162" title="1 of 2 branches missed.">        if (isNullString(subqid)) qid else subqid</span>
+      })
+
+<span class="fc" id="L165">      df.withColumn(&quot;answered_question_id&quot;, questionIdUDF(col(&quot;parent_question_id&quot;), col(&quot;child_question_id&quot;)))</span>
+    }
+  }
+
+<span class="fc" id="L169">  def estTimezoneConverter = udf((timezone: String, timestamp: String) =&gt; {</span>
+<span class="fc" id="L170">    val DCTimeZone = &quot;US/Eastern&quot;</span>
+<span class="fc" id="L171">    val DCZoneId = ZoneId.of(DCTimeZone)</span>
+<span class="fc" id="L172">    val formatter = DateTimeFormatter.ofPattern(&quot;yyyy-MM-dd HH:mm:ss&quot;)</span>
+<span class="fc" id="L173">    val localTimestampFormatted = LocalDateTime.parse(timestamp, formatter)</span>
+<span class="fc" id="L174">    val localTimestamp = localTimestampFormatted.atZone(DCZoneId)</span>
+<span class="fc" id="L175">    val zoneId =</span>
+<span class="pc bpc" id="L176" title="2 of 4 branches missed.">      if (timezone.isEmpty() || timezone == null)</span>
+<span class="nc" id="L177">        DCZoneId</span>
+      else
+<span class="fc" id="L179">        ZoneId.of(timezone)</span>
+<span class="fc" id="L180">    formatter.format(localTimestamp.withZoneSameInstant(zoneId))</span>
+  })
+
+<span class="fc" id="L183">  def dayplus0 = udf((i: String) =&gt; {</span>
+<span class="nc bnc" id="L184" title="All 2 branches missed.">    val day = if (i.toInt &lt; 10) &quot;0&quot;.concat(i.toString) else i.toString</span>
+<span class="nc" id="L185">    day</span>
+  })
+
+  def md5HashString(s: String): String = {
+    import java.security.MessageDigest
+    import java.math.BigInteger
+<span class="nc" id="L191">    val md = MessageDigest.getInstance(&quot;MD5&quot;)</span>
+<span class="nc" id="L192">    val digest = md.digest(s.getBytes)</span>
+<span class="nc" id="L193">    val bigInt = new BigInteger(1, digest)</span>
+<span class="nc" id="L194">    val hashedString = bigInt.toString(16)</span>
+<span class="nc" id="L195">    hashedString</span>
+  }
+
+<span class="fc" id="L198">  val toProperCase = (str: String) =&gt; {</span>
+<span class="fc bfc" id="L199" title="All 2 branches covered.">    if (str == null) {</span>
+<span class="fc" id="L200">      str</span>
+    }
+    else {
+<span class="fc" id="L203">      val stripSlash = str.replaceAll(&quot;\\\\&quot;, &quot;&quot;)</span>
+<span class="fc" id="L204">      val properCase = WordUtils.capitalizeFully(stripSlash)</span>
+<span class="fc" id="L205">      properCase</span>
+    }
+  }
+
+<span class="fc" id="L209">  def validateParquetInputData(parquetPath: String, validations: Seq[IndexedSeq[String]], validationsOutputPath: String, validationsConfigPath: String): Boolean = {</span>
+
+<span class="fc" id="L211">    val inputData = spark.read.parquet(parquetPath)</span>
+
+<span class="fc" id="L213">    val modifiedSchema = StructType(Array(</span>
+<span class="fc" id="L214">      StructField(&quot;error_col&quot;, StringType, true),</span>
+<span class="fc" id="L215">      StructField(&quot;error_val&quot;, StringType, true),</span>
+<span class="fc" id="L216">      StructField(&quot;error_regex&quot;, StringType, true)</span>
+    ))
+
+<span class="fc" id="L219">    val validationConfig = spark.read.option(&quot;sep&quot;, &quot;\t&quot;).csv(validationsConfigPath).collect()</span>
+
+    // Call you custom validation function
+<span class="fc" id="L222">    val validateDF = inputData.rdd.flatMap { row =&gt; validate(row, validations, validationConfig) }</span>
+
+    // Reconstruct the DataFrame with additional columns
+<span class="fc" id="L225">    val checkedDf = spark.sqlContext.createDataFrame(validateDF, modifiedSchema)</span>
+
+    // Filter out row having errors
+<span class="fc" id="L228">    val errorDf = checkedDf.filter(&quot;error_col is not null and error_val is not null and error_regex is not null&quot;)</span>
+
+<span class="pc bpc" id="L230" title="1 of 2 branches missed.">    if (errorDf.count() &gt; 0) {</span>
+<span class="fc" id="L231">      errorDf.distinct()</span>
+<span class="fc" id="L232">        .write</span>
+<span class="fc" id="L233">        .mode(SaveMode.Overwrite)</span>
+<span class="fc" id="L234">        .save(validationsOutputPath)</span>
+<span class="fc" id="L235">      true</span>
+    }
+    else
+<span class="nc" id="L238">      false</span>
+  }
+
+  def validate(row: Row, validations: Seq[IndexedSeq[String]], validationConf: Array[Row]): Seq[Row] = {
+
+<span class="fc" id="L243">    var error_col: String = null</span>
+<span class="fc" id="L244">    var error_val: String = null</span>
+<span class="fc" id="L245">    var error_regex: String = null</span>
+<span class="fc" id="L246">    val myRows = new ListBuffer[Row]</span>
+
+<span class="fc" id="L248">    for (validation &lt;- validations) {</span>
+<span class="fc" id="L249">      val regexName = validation(0)</span>
+<span class="pc bpc" id="L250" title="3 of 6 branches missed.">      val confRow = validationConf.filter(x =&gt; x.getString(1) == regexName)</span>
+<span class="fc" id="L251">      val regex = confRow(0).getString(0)</span>
+<span class="fc" id="L252">      val regexType = confRow(0).getString(2)</span>
+<span class="fc" id="L253">      val colsToValidate = validation.drop(1)</span>
+
+<span class="pc bpc" id="L255" title="1 of 2 branches missed.">      for (column &lt;- colsToValidate) {</span>
+<span class="fc" id="L256">        val columnValue = row.getAs[String](column)</span>
+<span class="fc" id="L257">        val resultRegexEvaluation = regex.r.unapplySeq(columnValue).isDefined</span>
+<span class="pc bpc" id="L258" title="3 of 6 branches missed.">        val isValid = if (regexType == &quot;valid&quot;) {</span>
+<span class="fc" id="L259">          resultRegexEvaluation</span>
+        } else {
+<span class="pc bpc" id="L261" title="1 of 2 branches missed.">          !resultRegexEvaluation</span>
+        }
+<span class="pc bpc" id="L263" title="1 of 2 branches missed.">        if (!isValid) {</span>
+<span class="fc" id="L264">          error_col = column</span>
+<span class="fc" id="L265">          error_val = columnValue</span>
+<span class="fc" id="L266">          error_regex = regexName</span>
+<span class="fc" id="L267">          myRows += Row(error_col, error_val, error_regex)</span>
+        }
+      }
+    }
+<span class="fc" id="L271">    myRows.toSeq</span>
+  }
+
+
+  def suggestValidateInputData(parquetPath: DataFrame): DataFrame = {
+
+<span class="fc" id="L277">    var columns = ArrayBuffer[String]()</span>
+<span class="fc" id="L278">    var codes = ArrayBuffer[String]()</span>
+
+<span class="fc" id="L280">    val suggestionResult = ConstraintSuggestionRunner()</span>
+<span class="fc" id="L281">      .onData(parquetPath)</span>
+<span class="fc" id="L282">      .addConstraintRules(Rules.DEFAULT)</span>
+<span class="fc" id="L283">      .run()</span>
+<span class="fc" id="L284">    println(&quot;suggestion&quot;)</span>
+<span class="pc bpc" id="L285" title="1 of 2 branches missed.">    suggestionResult.constraintSuggestions.foreach { case (column, suggestions) =&gt;</span>
+<span class="pc bpc" id="L286" title="1 of 2 branches missed.">      suggestions.foreach { suggestion =&gt;</span>
+<span class="fc" id="L287">        println(s&quot;Constraint suggestion for '$column':\t${suggestion.description}\n&quot; +</span>
+<span class="fc" id="L288">          s&quot;The corresponding scala code is ${suggestion.codeForConstraint}\n&quot;)</span>
+<span class="fc" id="L289">        columns += column</span>
+<span class="fc" id="L290">        codes += suggestion.codeForConstraint</span>
+      }
+    }
+<span class="fc" id="L293">    val sp = spark</span>
+    import sp.implicits._
+<span class="fc" id="L295">    val df = sc.parallelize(columns zip codes).toDF(&quot;column_name&quot;, &quot;operation&quot;)</span>
+<span class="fc" id="L296">    df</span>
+
+  }
+
+  def validateRawInputData(parquetPath: DataFrame, validations: String, validationsConfigPath: String): DataFrame = {
+
+<span class="fc" id="L302">    val myRows = new ListBuffer[Row]</span>
+<span class="fc" id="L303">    val columns = parquetPath.columns.toList</span>
+<span class="fc" id="L304">    val validDf = spark.read.option(&quot;sep&quot;, &quot;\t&quot;).option(&quot;header&quot;, true).csv(validations)</span>
+<span class="fc" id="L305">    val validationConfig = spark.read.option(&quot;sep&quot;, &quot;\t&quot;).option(&quot;header&quot;, true).csv(validationsConfigPath)</span>
+<span class="fc" id="L306">    val validationDataFrame = validDf.join(validationConfig, validationConfig(&quot;regex_name&quot;) === validDf(&quot;validation&quot;), &quot;inner&quot;)</span>
+<span class="fc" id="L307">      .filter(col(&quot;column_name&quot;).isin(columns: _*))</span>
+<span class="fc" id="L308">    val modifiedSchema = StructType(Array(</span>
+<span class="fc" id="L309">      StructField(&quot;column_name&quot;, StringType, true),</span>
+<span class="fc" id="L310">      StructField(&quot;column_validation&quot;, StringType, true),</span>
+<span class="fc" id="L311">      StructField(&quot;test_result&quot;, StringType, true),</span>
+<span class="fc" id="L312">      StructField(&quot;sample&quot;, StringType, true)</span>
+    ))
+<span class="fc" id="L314">    val val_list = validationDataFrame.collect()</span>
+<span class="fc" id="L315">    var colName: String = null</span>
+<span class="fc" id="L316">    var colValid: String = null</span>
+<span class="fc" id="L317">    var colError: String = null</span>
+<span class="fc" id="L318">    var colType: String = null</span>
+<span class="fc" id="L319">    var colSample: String = null</span>
+<span class="fc" id="L320">    for (x &lt;- val_list) {</span>
+<span class="fc" id="L321">      colName = x.get(0).toString</span>
+<span class="fc" id="L322">      colValid = x.get(1).toString</span>
+<span class="fc" id="L323">      colType = x.get(4).toString</span>
+<span class="pc bpc" id="L324" title="3 of 6 branches missed.">      if (colValid == &quot;not-null&quot;) {</span>
+<span class="fc bfc" id="L325" title="All 2 branches covered.">        if (parquetPath.filter(col(colName).isNull).count &gt; 0) {</span>
+<span class="fc" id="L326">          colError = &quot;FAIL&quot;</span>
+<span class="fc" id="L327">          colSample = &quot;Null&quot;</span>
+<span class="fc" id="L328">          myRows += Row(colName, colValid, colError, colSample)</span>
+        }
+        else {
+<span class="fc" id="L331">          colError = &quot;PASS&quot;</span>
+<span class="fc" id="L332">          colSample = &quot;N/A&quot;</span>
+<span class="fc" id="L333">          myRows += Row(colName, colValid, colError, colSample)</span>
+        }
+
+
+      }
+      else {
+
+<span class="fc bfc" id="L340" title="All 2 branches covered.">        if (parquetPath.filter(col(colName) rlike x.get(2).toString).count &gt; 0) {</span>
+<span class="fc" id="L341">          colError = &quot;FAIL&quot;</span>
+<span class="fc" id="L342">          colSample = parquetPath.filter(col(colName) rlike x.get(2).toString).select(col(colName)).limit(1).collect.map(x =&gt; x(0).toString).head</span>
+<span class="fc" id="L343">          myRows += Row(colName, colValid, colError, colSample)</span>
+
+        }
+        else {
+<span class="fc" id="L347">          colError = &quot;PASS&quot;</span>
+<span class="fc" id="L348">          colSample = &quot;N/A&quot;</span>
+<span class="fc" id="L349">          myRows += Row(colName, colValid, colError, colSample)</span>
+
+        }
+
+      }
+    }
+<span class="fc" id="L355">    val rdd = sc.parallelize(myRows.map(e =&gt; Row(e(0), e(1), e(2), e(3))))</span>
+<span class="fc" id="L356">    val newDF = spark.sqlContext.createDataFrame(rdd, modifiedSchema)</span>
+<span class="fc" id="L357">    val winSpec = Window.orderBy(&quot;column_name&quot;)</span>
+<span class="fc" id="L358">    newDF.withColumn(&quot;index&quot;, row_number().over(winSpec)).select(&quot;index&quot;, &quot;column_name&quot;, &quot;column_validation&quot;, &quot;test_result&quot;, &quot;sample&quot;)</span>
+
+  }
+
+  def validateDefaultRawInputData(parquetPath: DataFrame, validationsConfigPath: String): DataFrame = {
+
+<span class="fc" id="L364">    val myRows = new ListBuffer[Row]</span>
+<span class="fc" id="L365">    val columns = parquetPath.columns.toList</span>
+<span class="fc" id="L366">    val validationConfig = spark.read.option(&quot;sep&quot;, &quot;\t&quot;).option(&quot;header&quot;, true).csv(validationsConfigPath)</span>
+<span class="fc" id="L367">    val default = List(&quot;lower-case&quot;, &quot;upper-case&quot;, &quot;proper-case&quot;, &quot;not-spaces&quot;, &quot;special-character&quot;)</span>
+<span class="fc" id="L368">    val validationList = validationConfig.filter(col(&quot;regex_name&quot;).isin(default: _*)).rdd.collect()</span>
+<span class="fc" id="L369">    val modifiedSchema = StructType(Array(</span>
+<span class="fc" id="L370">      StructField(&quot;column_name&quot;, StringType, true),</span>
+<span class="fc" id="L371">      StructField(&quot;column_validation&quot;, StringType, true),</span>
+<span class="fc" id="L372">      StructField(&quot;test_result&quot;, StringType, true),</span>
+<span class="fc" id="L373">      StructField(&quot;sample&quot;, StringType, true)</span>
+
+    ))
+<span class="fc" id="L376">    var colName: String = null</span>
+<span class="fc" id="L377">    var colValid: String = null</span>
+<span class="fc" id="L378">    var colError: String = null</span>
+<span class="fc" id="L379">    var colSample: String = null</span>
+
+
+<span class="fc" id="L382">    columns.map(column =&gt; {</span>
+<span class="fc bfc" id="L383" title="All 2 branches covered.">      if (parquetPath.filter(col(column).isNull).count &gt; 0) {</span>
+<span class="fc" id="L384">        colError = &quot;FAIL&quot;</span>
+<span class="fc" id="L385">        colValid = &quot;not-null&quot;</span>
+<span class="fc" id="L386">        colSample = &quot;Null&quot;</span>
+<span class="fc" id="L387">        myRows += Row(column, colValid, colError, colSample)</span>
+      }
+      else {
+<span class="fc" id="L390">        colError = &quot;PASS&quot;</span>
+<span class="fc" id="L391">        colValid = &quot;not-null&quot;</span>
+<span class="fc" id="L392">        colSample = &quot;N/A&quot;</span>
+<span class="fc" id="L393">        myRows += Row(column, colValid, colError, colSample)</span>
+      }
+<span class="pc bpc" id="L395" title="1 of 2 branches missed.">      for (x &lt;- validationList) {</span>
+<span class="fc bfc" id="L396" title="All 2 branches covered.">        if (parquetPath.filter(col(column) rlike x.get(0).toString).count &gt; 0) {</span>
+<span class="fc" id="L397">          colError = &quot;FAIL&quot;</span>
+<span class="fc" id="L398">          colSample = parquetPath.filter(col(column) rlike x.get(0).toString).select(col(column)).limit(1).collect.map(x =&gt; x(0).toString).head</span>
+<span class="fc" id="L399">          colValid = x.get(1).toString</span>
+<span class="fc" id="L400">          myRows += Row(column, colValid, colError, colSample)</span>
+        }
+        else {
+<span class="fc" id="L403">          colError = &quot;PASS&quot;</span>
+<span class="fc" id="L404">          colSample = &quot;N/A&quot;</span>
+<span class="fc" id="L405">          colValid = x.get(1).toString</span>
+<span class="fc" id="L406">          myRows += Row(column, colValid, colError, colSample)</span>
+        }
+      }
+
+    })
+
+<span class="fc" id="L412">    val rdd = sc.parallelize(myRows.map(e =&gt; Row(e(0), e(1), e(2), e(3))))</span>
+<span class="fc" id="L413">    val newDF = spark.sqlContext.createDataFrame(rdd, modifiedSchema)</span>
+<span class="fc" id="L414">    val winSpec = Window.partitionBy(&quot;column_name&quot;).orderBy(&quot;column_name&quot;)</span>
+<span class="fc" id="L415">    newDF.withColumn(&quot;index&quot;, row_number().over(winSpec)).select(&quot;index&quot;, &quot;column_name&quot;, &quot;column_validation&quot;, &quot;test_result&quot;, &quot;sample&quot;)</span>
+
+  }
+
+  def transformParquetInputData(writeDataFrame: DataFrame, actionsDataframe: String): DataFrame = {
+
+<span class="fc" id="L421">    val toProperCaseUdf = udf(toProperCase)</span>
+<span class="fc" id="L422">    var outDF = writeDataFrame</span>
+<span class="fc" id="L423">    val columnsDf = writeDataFrame.columns.toList</span>
+<span class="fc" id="L424">    outDF.show</span>
+<span class="fc" id="L425">    val actionsDF = spark.read.option(&quot;sep&quot;, &quot;\t&quot;).option(&quot;header&quot;, true).csv(actionsDataframe)</span>
+<span class="fc" id="L426">    val act_list = actionsDF.filter(col(&quot;column_name&quot;).isin(columnsDf: _*))</span>
+<span class="fc" id="L427">      .filter(col(&quot;test_result&quot;) === &quot;FAIL&quot;).collect()</span>
+<span class="fc" id="L428">    for (x &lt;- act_list) {</span>
+<span class="fc" id="L429">      val action = x.get(2).toString</span>
+<span class="fc" id="L430">      val column = x.get(1).toString</span>
+<span class="fc" id="L431">      action match {</span>
+<span class="fc bfc" id="L432" title="All 2 branches covered.">        case &quot;not-spaces&quot; =&gt; outDF = outDF.withColumn(s&quot;$column&quot;, regexp_replace(col(s&quot;$column&quot;), &quot; &quot;, &quot;_&quot;))</span>
+<span class="fc bfc" id="L433" title="All 2 branches covered.">        case &quot;not-null&quot; =&gt; outDF = outDF.filter(col(s&quot;$column&quot;).isNotNull)</span>
+<span class="fc bfc" id="L434" title="All 2 branches covered.">        case &quot;lower-case&quot; =&gt; outDF = outDF.withColumn(s&quot;$column&quot;, lower(col(s&quot;$column&quot;)))</span>
+<span class="pc bpc" id="L435" title="1 of 2 branches missed.">        case &quot;upper-case&quot; =&gt; outDF = outDF.withColumn(s&quot;$column&quot;, upper(col(s&quot;$column&quot;)))</span>
+<span class="pc bpc" id="L436" title="1 of 2 branches missed.">        case &quot;proper-case&quot; =&gt; outDF = outDF.withColumn(s&quot;$column&quot;, toProperCaseUdf(col(s&quot;$column&quot;)))</span>
+<span class="pc bpc" id="L437" title="1 of 2 branches missed.">        case &quot;special-character&quot; =&gt; outDF = outDF.withColumn(s&quot;$column&quot;, regexp_replace(col(s&quot;$column&quot;), &quot;[^A-Za-z0-9]&quot;, &quot;&quot;))</span>
+<span class="nc" id="L438">        case _ =&gt;</span>
+      }
+<span class="fc" id="L440">      outDF.show()</span>
+    }
+<span class="fc" id="L442">    outDF</span>
+  }
+
+}
+<span class="fc" id="L446"></span>
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

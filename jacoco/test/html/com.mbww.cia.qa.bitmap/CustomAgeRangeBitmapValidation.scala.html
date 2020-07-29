@@ -1,0 +1,282 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CustomAgeRangeBitmapValidation.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.qa.bitmap</a> &gt; <span class="el_source">CustomAgeRangeBitmapValidation.scala</span></div><h1>CustomAgeRangeBitmapValidation.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.qa.bitmap
+
+import java.io.{ByteArrayOutputStream, InputStream, ObjectOutputStream}
+
+import com.amazonaws.services.s3.AmazonS3
+import com.amazonaws.services.s3.model.GetObjectRequest
+import com.mbww.cia.qa.utils.{BitMapUtility, Setup}
+import org.apache.commons.io.IOUtils
+import org.json.JSONObject
+import org.slf4j.LoggerFactory
+import com.mbww.cia.common.{Module, _}
+import org.roaringbitmap.RoaringBitmap
+import scala.collection.Seq
+import scala.collection.mutable.ListBuffer
+import scala.collection.parallel.ForkJoinTaskSupport
+import scala.concurrent.forkjoin
+
+
+<span class="nc" id="L19">class CustomAgeRangeBitmapValidation  extends Module{</span>
+<span class="nc" id="L20">  val logger = LoggerFactory.getLogger(&quot;CIA Pipeline&quot;)</span>
+<span class="nc" id="L21">  var startingIndex: String = null</span>
+<span class="nc" id="L22">  var endIndex: String = null</span>
+<span class="nc" id="L23">  var parentJsonObject: JSONObject = null</span>
+<span class="nc" id="L24">  var childJsonObject: JSONObject = null</span>
+<span class="nc" id="L25">  var columnName: String = null</span>
+<span class="nc" id="L26">  var runForNegativeValues: String = null</span>
+<span class="nc" id="L27">  var hasSingleZeroAppended: String = null</span>
+<span class="nc" id="L28">  var hasDoubleZeroAppended: String = null</span>
+<span class="nc" id="L29">  var listOfColumnsWithIndexes = new ListBuffer[(String)]()</span>
+<span class="nc" id="L30">  def rangeBitmapRequestHandler(setup:Setup,marketName:String,columnName: String,startingIndex:Int,endIndex:Int, outputAwsBucket: String,awsS3Client: AmazonS3,bitmapFilePath:String,delimiter: String = &quot;\t&quot;): Boolean = {</span>
+<span class="nc" id="L31">    try {</span>
+<span class="nc" id="L32">      var status =true</span>
+<span class="nc" id="L33">      var bitmapMergingStatus = false</span>
+<span class="nc" id="L34">      bitmapMergingStatus = generateMergedBitmapsForUS(outputAwsBucket, bitmapFilePath, columnName, startingIndex, endIndex, awsS3Client)</span>
+<span class="nc bnc" id="L35" title="All 2 branches missed.">      if (bitmapMergingStatus == false) {</span>
+<span class="nc" id="L36">        logger.info(&quot;The Requested Bitmap for column&quot; + columnName + &quot; could not be generated for&quot; + &quot; starting index =&quot; + startingIndex + &quot; and end index=&quot; + endIndex)</span>
+<span class="nc" id="L37">        status= false</span>
+      }
+
+<span class="nc" id="L40">      status</span>
+    }
+    catch {
+<span class="nc" id="L43">      case ex: Exception =&gt; logger.info(&quot;Error before merging the bitmaps, problem in extracting the parameters required!!&quot;)</span>
+<span class="nc" id="L44">        return false</span>
+    }
+  }
+
+
+  private def generateMergedBitmapsForUS(outputBucket: String, bitmapPath: String, columnName: String, startingIndex: Int, endIndex: Int ,awsS3Client: AmazonS3): Boolean = {
+<span class="nc bnc" id="L50" title="All 12 branches missed.">    if (outputBucket != null &amp;&amp; bitmapPath != null &amp;&amp; columnName != null &amp;&amp; startingIndex != null &amp;&amp; endIndex != null &amp;&amp; startingIndex &lt;= endIndex) {</span>
+<span class="nc" id="L51">      var mergedBitmap: RoaringBitmap = new RoaringBitmap</span>
+<span class="nc" id="L52">      var outputPathOfMergedBitmap: String = null</span>
+<span class="nc" id="L53">      var colToMerge: String = null</span>
+<span class="nc" id="L54">      val constant = startingIndex</span>
+<span class="nc" id="L55">      var firstIndex: Int = 0</span>
+<span class="nc" id="L56">      var secondIndex: Int = 0</span>
+
+<span class="nc bnc" id="L58" title="All 2 branches missed.">      for (i &lt;- startingIndex until endIndex by 2) {</span>
+<span class="nc" id="L59">        logger.info(&quot;Value of I =&quot; + i)</span>
+<span class="nc" id="L60">        firstIndex = i + 1 // 19</span>
+<span class="nc" id="L61">        logger.info(&quot;First Index = &quot; + firstIndex)</span>
+<span class="nc bnc" id="L62" title="All 4 branches missed.">        if (i == startingIndex &amp;&amp; i &lt; constant + 1) {</span>
+<span class="nc" id="L63">          logger.info(&quot;First IF Condition&quot;)</span>
+<span class="nc" id="L64">          colToMerge = columnName + &quot;_&quot; + i + &quot;_&quot; + firstIndex + &quot;/&quot;</span>
+<span class="nc" id="L65">          outputPathOfMergedBitmap = &quot;age&quot; + &quot;_&quot; + startingIndex + &quot;_&quot; + endIndex + &quot;/&quot;</span>
+        }
+<span class="nc bnc" id="L67" title="All 4 branches missed.">        if (i &gt; startingIndex &amp;&amp; i &lt;= endIndex) {</span>
+<span class="nc" id="L68">          logger.info(&quot;Second If Condition&quot;)</span>
+<span class="nc" id="L69">          colToMerge = columnName + &quot;_&quot; + i + &quot;_&quot; + firstIndex + &quot;/&quot;</span>
+<span class="nc" id="L70">          outputPathOfMergedBitmap = &quot;age&quot; + &quot;_&quot; + startingIndex + &quot;_&quot; + endIndex + &quot;/&quot;</span>
+        }
+<span class="nc" id="L72">        logger.info(&quot;Column Under Processing =&gt; &quot; + colToMerge)</span>
+<span class="nc" id="L73">        val bitmap: RoaringBitmap = fetchBitmap(outputBucket,bitmapPath, colToMerge,awsS3Client)</span>
+<span class="nc bnc" id="L74" title="All 2 branches missed.">        if (bitmap == null) {</span>
+<span class="nc" id="L75">          logger.info(&quot;The Requested Index &quot; + i + &quot; &quot; + &quot;could not be found for column =&gt; &quot; + columnName)</span>
+        }
+        else {
+<span class="nc" id="L78">          logger.info(&quot;Bitmap Length =&gt; &quot; + bitmap.toArray.length.toLong)</span>
+<span class="nc" id="L79">          mergedBitmap = RoaringBitmap.or(mergedBitmap, bitmap)</span>
+<span class="nc" id="L80">          logger.info(&quot;Loop Bitmap Length till point =&gt; &quot; + mergedBitmap.toArray.length.toLong)</span>
+        }
+      }
+
+<span class="nc" id="L84">      var actualAgeRangeBitmap=fetchBitmap(outputBucket,bitmapPath,outputPathOfMergedBitmap,awsS3Client)</span>
+<span class="nc bnc" id="L85" title="All 2 branches missed.">      if (mergedBitmap.toArray().length.toString().equals(actualAgeRangeBitmap.toArray.length.toString))</span>
+      {
+<span class="nc" id="L87">        logger.info(s&quot;merged bitmap length&quot; + mergedBitmap.toArray().length.toString() + &quot; matched with actual Custom age range bitmap length&quot; + actualAgeRangeBitmap.toArray.length.toString)</span>
+<span class="nc" id="L88">        return true</span>
+      }
+      else
+<span class="nc" id="L91">        logger.info(s&quot;merged Custom age range bitmap&quot; + mergedBitmap.toArray().length.toString() + &quot;not matched with actual Custom age range bitmap length&quot; + actualAgeRangeBitmap.toArray.length.toString)</span>
+<span class="nc" id="L92">      false</span>
+    }
+    else {
+<span class="nc" id="L95">      logger.info(&quot;Missing parameters/Invalid StartingIndex Or EndIndex&quot;)</span>
+<span class="nc" id="L96">      false</span>
+    }
+  }
+<span class="nc" id="L99">  private def fetchBitmap( bucket:String,bitmapPath:String,attribute: String, awsS3Client: AmazonS3 ): RoaringBitmap = {</span>
+<span class="nc" id="L100">    val attributePath = s&quot;${bitmapPath + &quot;attribute_id=&quot; + attribute}&quot;</span>
+<span class="nc" id="L101">    println(&quot;attributePath=&quot; + attributePath)</span>
+<span class="nc" id="L102">    var mergedBitmap: RoaringBitmap = new RoaringBitmap</span>
+<span class="nc" id="L103">    try {</span>
+<span class="nc" id="L104">      var bitmapPath = BitMapUtility.getFilePathfromS3V2(bucket, attributePath, awsS3Client)</span>
+<span class="nc" id="L105">      bitmapPath.foreach { x =&gt; {</span>
+<span class="nc" id="L106">        var objec = awsS3Client.getObject(new GetObjectRequest(bucket, x))</span>
+<span class="nc" id="L107">        var objectData: InputStream = objec.getObjectContent</span>
+<span class="nc" id="L108">        var bos = new ByteArrayOutputStream()</span>
+<span class="nc" id="L109">        var oos = new ObjectOutputStream(bos)</span>
+<span class="nc" id="L110">        var arrayByte = IOUtils.toByteArray(objectData)</span>
+<span class="nc" id="L111">        mergedBitmap = BitMapUtility.deserializeBitmap(arrayByte)</span>
+      }
+      }
+<span class="nc" id="L114">      mergedBitmap</span>
+    }
+    catch {
+      case ex: Exception =&gt; println(&quot;Bitmap Not Found!!&quot;)
+<span class="nc" id="L118">        null</span>
+    }
+  }
+
+<span class="nc" id="L122">  def rangeBitmapRequestHandlerForUK(setup:Setup,marketName:String,columnName: String,startingIndex:Int,endIndex:Int, outputAwsBucket: String,awsS3Client: AmazonS3,bitmapFilePath:String,delimiter: String = &quot;\t&quot;): Boolean = {</span>
+<span class="nc" id="L123">    try {</span>
+<span class="nc" id="L124">      var status =true</span>
+<span class="nc" id="L125">      var bitmapMergingStatus = false</span>
+<span class="nc" id="L126">      bitmapMergingStatus = generateMergedBitmapsForUK(setup,outputAwsBucket, bitmapFilePath, columnName, startingIndex, endIndex,awsS3Client)</span>
+<span class="nc bnc" id="L127" title="All 2 branches missed.">      if (bitmapMergingStatus == false) {</span>
+<span class="nc" id="L128">        logger.info(&quot;The Requested Bitmap for column&quot; + columnName + &quot; could not be generated for&quot; + &quot; starting index =&quot; + startingIndex + &quot; and end index=&quot; + endIndex)</span>
+<span class="nc" id="L129">        status= false</span>
+      }
+
+<span class="nc" id="L132">      status</span>
+    }
+    catch {
+<span class="nc" id="L135">      case ex: Exception =&gt; logger.info(&quot;Error before merging the bitmaps, problem in extracting the parameters required!!&quot;)</span>
+<span class="nc" id="L136">        return false</span>
+    }
+  }
+<span class="nc bnc" id="L139" title="All 2 branches missed.">  private def generateMergedBitmapsForUK(setup:Setup,outputBucket: String, bitmapPath: String, columnName: String, startingIndex: Int, endIndex: Int, awsS3Client: AmazonS3): Boolean = {</span>
+<span class="nc bnc" id="L140" title="All 12 branches missed.">    if (outputBucket != null &amp;&amp; bitmapPath != null &amp;&amp; columnName != null &amp;&amp; startingIndex != null &amp;&amp; endIndex != null &amp;&amp; startingIndex &lt;= endIndex) {</span>
+<span class="nc" id="L141">      var mergedBitmap: RoaringBitmap = new RoaringBitmap</span>
+<span class="nc" id="L142">      var outputPathOfMergedBitmap: String = null</span>
+<span class="nc" id="L143">      outputPathOfMergedBitmap = columnName + &quot;_&quot; + startingIndex + &quot;_&quot; + endIndex + &quot;/&quot;</span>
+<span class="nc" id="L144">      var actualAgeRangeBitmap = fetchBitmap(outputBucket, bitmapPath, outputPathOfMergedBitmap, awsS3Client)</span>
+<span class="nc" id="L145">      val attributePaths = s&quot;${bitmapPath + &quot;attribute_id=&quot; + outputPathOfMergedBitmap}&quot;</span>
+<span class="nc" id="L146">      println(&quot;attributePaths=&quot; + attributePaths)</span>
+<span class="nc" id="L147">      val modifiedPath = bitmapPath + s&quot;attribute_id=${outputPathOfMergedBitmap}&quot;</span>
+<span class="nc" id="L148">      println(&quot;modifiedPath=&quot; + modifiedPath)</span>
+<span class="nc" id="L149">      var fileLists = BitMapUtility.getFilePathfromS3V2(setup.bucketName, modifiedPath, awsS3Client)</span>
+<span class="nc bnc" id="L150" title="All 2 branches missed.">      fileLists.foreach { y =&gt;</span>
+<span class="nc" id="L151">        logger.info(y)</span>
+<span class="nc" id="L152">        logger.info(actualAgeRangeBitmap.toArray.length.toString)</span>
+<span class="nc" id="L153">        val expectedCount=actualAgeRangeBitmap.toArray.length.toString</span>
+<span class="nc" id="L154">        logger.info(&quot;expectedCount&quot; + expectedCount)</span>
+<span class="nc bnc" id="L155" title="All 2 branches missed.">        if (!(validateBitmap(y, setup.bucketName, awsS3Client, expectedCount))) {</span>
+<span class="nc" id="L156">          return false</span>
+        }
+      }
+    }
+<span class="nc" id="L160">    else {</span>
+<span class="nc" id="L161">      logger.info(&quot;Missing parameters/Invalid StartingIndex Or EndIndex&quot;)</span>
+<span class="nc" id="L162">      false</span>
+    }
+<span class="nc" id="L164">    true</span>
+  }
+
+  def validateBitmap(key: String, bucketName: String,awsS3Client: AmazonS3,exepectedCount: String): Boolean = {
+
+<span class="nc" id="L169">    var objec = awsS3Client.getObject(new GetObjectRequest(bucketName, key))</span>
+<span class="nc" id="L170">    var objectData: InputStream = objec.getObjectContent</span>
+<span class="nc" id="L171">    var bos = new ByteArrayOutputStream()</span>
+<span class="nc" id="L172">    var oos = new ObjectOutputStream(bos)</span>
+<span class="nc" id="L173">    var arrayByte = IOUtils.toByteArray(objectData)</span>
+<span class="nc" id="L174">    var bitmap = BitMapUtility.deserializeBitmap(arrayByte)</span>
+<span class="nc" id="L175">    var outputLuidCount = bitmap.toArray().length.toString()</span>
+<span class="nc" id="L176">    logger.info(s&quot;--------------actual  Bitmap count is :  ${outputLuidCount}&quot;)</span>
+<span class="nc" id="L177">    var status= true</span>
+<span class="nc bnc" id="L178" title="All 6 branches missed.">    if (exepectedCount == outputLuidCount)</span>
+    {
+<span class="nc" id="L180">      logger.info(s&quot;-------------- Bitmap count ${outputLuidCount} is correct for location ---- :- &quot; + key)</span>
+    } else {
+<span class="nc" id="L182">      logger.info(&quot;##############Bitmap location  is &quot; + key)</span>
+<span class="nc" id="L183">      logger.info(&quot;##############Actual bitmap count is &quot; + outputLuidCount)</span>
+<span class="nc" id="L184">      logger.info(&quot;############# Bitmap count in taxonomyFile is &quot; + exepectedCount)</span>
+<span class="nc" id="L185">      status =false</span>
+    }
+<span class="nc" id="L187">    return status</span>
+  }
+
+
+  def validation(marketName: String,
+                 bucket: String,
+                 dataProviderName: String,
+                 matchingPartnerName: String,
+                 ageRangebitmapPath: Seq[JSONObject],
+                 ranges:Seq[JSONObject],
+                 bitMapType:Seq[JSONObject],
+<span class="nc" id="L198">                 thread_count: Int = 1): Unit = {</span>
+<span class="nc" id="L199">    val setup = new Setup(marketName, bucket, dataProviderName, matchingPartnerName)</span>
+<span class="nc" id="L200">    val awsS3Client = setup.awsS3Client</span>
+<span class="nc" id="L201">    val pRanges=ranges.par</span>
+<span class="nc" id="L202">    pRanges.tasksupport = new ForkJoinTaskSupport(new forkjoin.ForkJoinPool(thread_count))</span>
+<span class="nc bnc" id="L203" title="All 4 branches missed.">    if(marketName.toUpperCase.equals(&quot;UK&quot;) || marketName.toUpperCase.equals(&quot;AU&quot;))</span>
+    {
+<span class="nc" id="L205">      val pAgeRange=ageRangebitmapPath.par</span>
+<span class="nc bnc" id="L206" title="All 2 branches missed.">      pAgeRange.foreach(path =&gt; {</span>
+<span class="nc" id="L207">        var bitmap_path = path.get(&quot;bitmap_path&quot;).toString</span>
+<span class="nc" id="L208">        logger.info(&quot;bitmap_path&quot; + bitmap_path)</span>
+<span class="nc" id="L209">        val pType = bitMapType.par</span>
+<span class="nc bnc" id="L210" title="All 2 branches missed.">        pType.foreach(bitmaptype =&gt; {</span>
+<span class="nc" id="L211">          var bitMapType = bitmaptype.get(&quot;bitMapType&quot;).toString</span>
+<span class="nc" id="L212">          logger.info(&quot;bitMapType&quot; + bitMapType)</span>
+<span class="nc" id="L213">          var bitmapPath=bitmap_path + bitMapType + &quot;/&quot;</span>
+<span class="nc" id="L214">          logger.info(s&quot;bitmapPath for ${bitMapType} is :&quot; + bitmapPath)</span>
+<span class="nc bnc" id="L215" title="All 2 branches missed.">          pRanges.foreach(rangeData =&gt; {</span>
+<span class="nc" id="L216">            val columnName = rangeData.get(&quot;column&quot;).toString</span>
+<span class="nc" id="L217">            val startIndex = rangeData.get(&quot;start_index&quot;).toString.toInt</span>
+<span class="nc" id="L218">            val endIndex = rangeData.get(&quot;end_index&quot;).toString.toInt</span>
+
+<span class="nc bnc" id="L220" title="All 2 branches missed.">            if(!(rangeBitmapRequestHandlerForUK(setup, marketName, columnName, startIndex, endIndex, bucket, awsS3Client, bitmapPath)))</span>
+            {
+<span class="nc" id="L222">              throw new RuntimeException(&quot;-----------------Custom age range failed ---------------------&quot;)</span>
+            }
+
+          })
+        }
+        )
+      }
+      )
+    }
+    else
+    {
+<span class="nc" id="L233">      val pAgeRange=ageRangebitmapPath.par</span>
+<span class="nc bnc" id="L234" title="All 2 branches missed.">      pAgeRange.foreach(path =&gt; {</span>
+<span class="nc" id="L235">        var bitmap_path = path.get(&quot;bitmap_path&quot;).toString</span>
+<span class="nc" id="L236">        logger.info(&quot;bitmap_path&quot; + bitmap_path)</span>
+<span class="nc" id="L237">        val pType = bitMapType.par</span>
+<span class="nc bnc" id="L238" title="All 2 branches missed.">        pType.foreach(bitmaptype =&gt; {</span>
+<span class="nc" id="L239">          var bitMapType = bitmaptype.get(&quot;bitMapType&quot;).toString</span>
+<span class="nc" id="L240">          logger.info(&quot;bitMapType&quot; + bitMapType)</span>
+<span class="nc" id="L241">          var bitmapPath=bitmap_path + bitMapType + &quot;/&quot;</span>
+<span class="nc" id="L242">          logger.info(s&quot;bitmapPath for ${bitMapType} is :&quot; + bitmapPath)</span>
+<span class="nc bnc" id="L243" title="All 2 branches missed.">          pRanges.foreach(rangeData =&gt; {</span>
+<span class="nc" id="L244">            val columnName = rangeData.get(&quot;column&quot;).toString</span>
+<span class="nc" id="L245">            val startIndex = rangeData.get(&quot;start_index&quot;).toString.toInt</span>
+<span class="nc" id="L246">            val endIndex = rangeData.get(&quot;end_index&quot;).toString.toInt</span>
+<span class="nc bnc" id="L247" title="All 2 branches missed.">            if(!(rangeBitmapRequestHandler(setup, marketName, columnName, startIndex, endIndex, bucket, awsS3Client, bitmapPath)))</span>
+            {
+<span class="nc" id="L249">              throw new RuntimeException(&quot;-----------------Custom age range failed ---------------------&quot;)</span>
+            }
+
+          })
+        }
+        )
+      }
+      )
+    }
+  }
+
+  override def run(args: JSONObject): Unit = {
+<span class="nc" id="L261">    val marketName = args.getString(&quot;marketName&quot;)</span>
+<span class="nc" id="L262">    val bucket = args.getString(&quot;bucket&quot;)</span>
+<span class="nc" id="L263">    val dataProviderName = args.getString(&quot;dataProviderName&quot;)</span>
+<span class="nc" id="L264">    val matchingPartnerName = args.getString(&quot;matchingPartnerName&quot;)</span>
+<span class="nc" id="L265">    val bitmap_path = args.getSeq[JSONObject](&quot;ageRangeBitmapPath&quot;)</span>
+<span class="nc" id="L266">    var ranges = args.getSeq[JSONObject](&quot;ranges&quot;)</span>
+<span class="nc" id="L267">    val thread_count = args.getOrElse[Int](&quot;thread_count&quot;, 1)</span>
+<span class="nc" id="L268">    val bitMapType = args.getSeq[JSONObject](&quot;bitMap_Type&quot;)</span>
+
+<span class="nc" id="L270">    validation(</span>
+<span class="nc" id="L271">      marketName,</span>
+<span class="nc" id="L272">      bucket,</span>
+<span class="nc" id="L273">      dataProviderName,</span>
+<span class="nc" id="L274">      matchingPartnerName,</span>
+<span class="nc" id="L275">      bitmap_path,</span>
+<span class="nc" id="L276">      ranges,</span>
+<span class="nc" id="L277">      bitMapType,</span>
+<span class="nc" id="L278">      thread_count)</span>
+
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

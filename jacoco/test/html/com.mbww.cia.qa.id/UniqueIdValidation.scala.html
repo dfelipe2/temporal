@@ -1,0 +1,327 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>UniqueIdValidation.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.qa.id</a> &gt; <span class="el_source">UniqueIdValidation.scala</span></div><h1>UniqueIdValidation.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.qa.id
+
+import org.apache.spark.sql.types._
+import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.expressions.Window
+import org.slf4j.LoggerFactory
+import com.mbww.cia.common.Spark._
+import com.mbww.cia.common.{Module, _}
+import com.mbww.cia.qa.utils.ValidationUtils
+import org.json.JSONObject
+import org.apache.spark.sql.functions._
+
+
+<span class="fc" id="L14">class UniqueIdValidation extends  Module {</span>
+<span class="fc" id="L15">  val logger = LoggerFactory.getLogger(&quot;CIA Pipeline&quot;)</span>
+<span class="fc" id="L16">  var structTypeSchema:StructType = null</span>
+<span class="fc" id="L17">  var actualQuarterlyDF :DataFrame= null</span>
+<span class="pc" id="L18">  var actualQuarterlyDFCount:Long=0;</span>
+<span class="fc" id="L19">  var filteredParquetDF :DataFrame= null</span>
+<span class="fc" id="L20">  var numericIdDF :DataFrame= null</span>
+<span class="fc" id="L21">  var actualUniversalDF :DataFrame= null</span>
+<span class="fc" id="L22">  var actualUniversalDFCount:Long=0;</span>
+<span class="pc" id="L23">  var expectedQuarterlyMbidDF :DataFrame= null</span>
+<span class="pc" id="L24">  var expectedQuarterlyHhidDF :DataFrame= null</span>
+<span class="fc" id="L25">  var expectedStringIds:DataFrame=null</span>
+<span class="fc" id="L26">  var expectedQuartlyDF :DataFrame= null</span>
+<span class="fc" id="L27">  var expectedUniversalMaxId:Long=0</span>
+  def validation(marketName:String,
+                 acxiom_path: String,
+                 acxiom_mbid_col: String,
+                 acxiom_hhid_col: String,
+                 input_columns:Seq[String],
+                 universal_numeric_id_col:String,
+                 universal_string_id_col:String,
+                 dataset_id_col:String,
+                 subsets: Seq[(String,String,String,String,String)]
+                ): Boolean = {
+
+<span class="fc" id="L39">    val sp = spark</span>
+    import sp.implicits._
+<span class="fc" id="L41">    structTypeSchema = StructType(input_columns.map(c =&gt; StructField(c, StringType, true)).toArray)</span>
+<span class="fc" id="L42">    val acxiom = spark.read.parquet(acxiom_path)</span>
+
+<span class="pc bpc" id="L44" title="1 of 2 branches missed.">    subsets.foreach(s =&gt; {</span>
+<span class="fc" id="L45">      val dataset_Type=s._1</span>
+<span class="fc" id="L46">      val quarterly_output_path = s._2</span>
+<span class="fc" id="L47">      val universal_output_path = s._3</span>
+<span class="fc" id="L48">      val universal_input_path = s._4</span>
+<span class="fc" id="L49">      val key_Type=s._5</span>
+
+<span class="fc" id="L51">      logger.info(s&quot;dataset_Type for ${marketName}:&quot; + dataset_Type)</span>
+<span class="fc" id="L52">      logger.info(s&quot;quarterly_output_path for ${marketName}:&quot; + quarterly_output_path)</span>
+<span class="fc" id="L53">      logger.info(s&quot;universal_output_path for ${marketName}:&quot; + universal_output_path)</span>
+<span class="fc" id="L54">      logger.info(s&quot;universal_input_path count for ${marketName}:&quot; + universal_input_path)</span>
+<span class="fc" id="L55">      logger.info(s&quot;key_Type for ${marketName}:&quot; + key_Type)</span>
+
+
+<span class="pc bpc" id="L58" title="1 of 2 branches missed.">      val UniversalUniqueIds = if (universal_input_path.isEmpty) {</span>
+<span class="fc" id="L59">        Seq.empty[(String, String)].toDF(universal_string_id_col, universal_numeric_id_col)</span>
+      } else {
+<span class="nc" id="L61">        spark.read.parquet(universal_input_path)</span>
+      }
+
+<span class="fc" id="L64">      var universalIdCount=UniversalUniqueIds.count()</span>
+<span class="fc" id="L65">      logger.info(s&quot; universal ${key_Type} ${dataset_Type} Ids count for ${marketName}:&quot; + universalIdCount)</span>
+
+
+      /** load quarterly  Ids for current quarter*/
+<span class="fc" id="L69">      var quarterlyIds = spark</span>
+<span class="fc" id="L70">        .read</span>
+<span class="fc" id="L71">        .parquet(quarterly_output_path)</span>
+
+      /** 1-validate the schema of quarterly ids is correct*/
+<span class="fc" id="L74">      ValidationUtils.validateSchema(structTypeSchema,quarterlyIds.schema)</span>
+<span class="fc" id="L75">      logger.info(s&quot;Actual Schema matched with expected Schema for quarterly ${key_Type} ${dataset_Type} Ids&quot;)</span>
+
+
+      /** load universal Ids for current quarter*/
+<span class="fc" id="L79">      val newUniversal=spark</span>
+<span class="fc" id="L80">        .read</span>
+<span class="fc" id="L81">        .parquet(universal_output_path)</span>
+
+      /** 2-validate the schema of new universal ids is correct*/
+<span class="fc" id="L84">      ValidationUtils.validateSchema(structTypeSchema,newUniversal.schema)</span>
+<span class="fc" id="L85">      logger.info(s&quot;Actual Schema matched with expected Schema for universal  ${key_Type} ${dataset_Type} Ids&quot;)</span>
+
+      /** 3- validate the universal Ids are distinct*/
+<span class="fc" id="L88">      var idName=s&quot;Universal ${key_Type}  ${dataset_Type} Ids&quot;</span>
+<span class="fc" id="L89">      validateDistinctCount(newUniversal.toDF(),idName)</span>
+
+      /** 4- validate the quarterly Ids are distinct*/
+<span class="fc" id="L92">      idName=s&quot;Quarterly ${key_Type}  ${dataset_Type} Ids&quot;</span>
+<span class="fc" id="L93">      validateDistinctCount(quarterlyIds.toDF(),idName)</span>
+
+<span class="fc" id="L95">      actualQuarterlyDF=quarterlyIds.toDF()</span>
+<span class="fc" id="L96">      actualQuarterlyDFCount=actualQuarterlyDF.count()</span>
+
+      /** get  string Ids column from Quarterly Ids*/
+<span class="fc" id="L99">      filteredParquetDF=actualQuarterlyDF.drop(universal_numeric_id_col)</span>
+
+      /** get  numeric Ids column from Quarterly Ids*/
+<span class="fc" id="L102">      numericIdDF=actualQuarterlyDF.select(universal_numeric_id_col)</span>
+
+      /** 5- each string_Ids in quarterly Ids have corresponding numeric Id*/
+<span class="fc" id="L105">      ValidationUtils.validateCount(filteredParquetDF,numericIdDF)</span>
+<span class="fc" id="L106">      logger.info(s&quot;each string_Ids in quarterly ${key_Type} ${dataset_Type} Ids have corresponding numeric Id  &quot;)</span>
+
+
+      /** 6-validate the expected count  Quarterly unique Ids of matched with actual Quarterly Ids Count*/
+<span class="pc bpc" id="L110" title="1 of 2 branches missed.">      if(marketName.equals(&quot;US&quot;))</span>
+      {
+<span class="nc" id="L112">        val mbid=acxiom.select(acxiom_mbid_col).where(s&quot;${acxiom_hhid_col} is not NULL&quot;).withColumn(universal_string_id_col,col(acxiom_mbid_col))</span>
+
+<span class="nc" id="L114">        expectedQuarterlyMbidDF=mbid.distinct()</span>
+
+<span class="nc" id="L116">        val hhid=acxiom.select(acxiom_hhid_col).withColumn(universal_string_id_col,col(acxiom_hhid_col))</span>
+
+<span class="nc" id="L118">        expectedQuarterlyHhidDF=hhid.distinct()</span>
+<span class="nc bnc" id="L119" title="All 2 branches missed.">        if(dataset_Type.equals(&quot;mbid&quot;))</span>
+<span class="nc" id="L120">        {</span>
+
+<span class="nc" id="L122">          expectedStringIds = expectedQuarterlyMbidDF.select(universal_string_id_col).except(UniversalUniqueIds.select(universal_string_id_col))</span>
+<span class="nc" id="L123">          validateCount(expectedQuarterlyMbidDF,actualQuarterlyDF,idName)</span>
+
+        }
+<span class="nc bnc" id="L126" title="All 2 branches missed.">        else if(dataset_Type.equals(&quot;hhid&quot;))</span>
+<span class="nc" id="L127">        {</span>
+<span class="nc" id="L128">          expectedStringIds = expectedQuarterlyHhidDF.select(universal_string_id_col).except(UniversalUniqueIds.select(universal_string_id_col))</span>
+<span class="nc" id="L129">          validateCount(expectedQuarterlyHhidDF,actualQuarterlyDF,idName)</span>
+
+        }
+      }
+<span class="pc bpc" id="L133" title="1 of 2 branches missed.">      else if(marketName.equals(&quot;UK&quot;))</span>
+      {
+<span class="nc bnc" id="L135" title="All 2 branches missed.">        if(key_Type.equals(&quot;duplicate&quot;))</span>
+        {
+<span class="nc" id="L137">          expectedQuartlyDF=acxiom</span>
+        }
+<span class="nc bnc" id="L139" title="All 2 branches missed.">        else if(key_Type.equals(&quot;unique&quot;))</span>
+        {
+<span class="nc" id="L141">          expectedQuartlyDF=acxiom.filter(s&quot;${dataset_id_col}==1&quot;)</span>
+        }
+<span class="nc" id="L143">        expectedStringIds=expectedQuartlyDF.withColumn(universal_string_id_col,col(acxiom_mbid_col)).select(universal_string_id_col).except(UniversalUniqueIds.select(universal_string_id_col))</span>
+<span class="nc" id="L144">        validateCount(expectedQuartlyDF,actualQuarterlyDF,idName)</span>
+
+      }
+      else{
+
+<span class="fc" id="L149">        expectedQuartlyDF=acxiom.select(acxiom_mbid_col).distinct()</span>
+<span class="fc" id="L150">        expectedStringIds=expectedQuartlyDF.withColumn(universal_string_id_col,col(acxiom_mbid_col)).select(universal_string_id_col).except(UniversalUniqueIds.select(universal_string_id_col))</span>
+<span class="fc" id="L151">        validateCount(expectedQuartlyDF,actualQuarterlyDF,idName)</span>
+
+      }
+
+<span class="fc" id="L155">      val except_idsCount=expectedStringIds.count()</span>
+<span class="fc" id="L156">      logger.info(s&quot;except_ids of ${key_Type} ${dataset_Type} Ids count for ${marketName} :&quot; + except_idsCount)</span>
+
+<span class="fc" id="L158">      val expectedUniversalIds=universalIdCount+except_idsCount</span>
+<span class="fc" id="L159">      logger.info(s&quot;expected Max ${key_Type} ${dataset_Type} Ids for ${marketName}   is :&quot; + expectedUniversalIds)</span>
+
+<span class="fc" id="L161">      val max_numeric_id = UniversalUniqueIds</span>
+<span class="fc" id="L162">        .select(max(col(universal_numeric_id_col).cast(IntegerType)))</span>
+<span class="fc" id="L163">        .first</span>
+<span class="fc" id="L164">        .getAs[Int](0)</span>
+
+<span class="fc" id="L166">      logger.info(s&quot;max_numeric_id of ${key_Type} ${dataset_Type} for  ${marketName}  :&quot; + max_numeric_id)</span>
+
+<span class="fc" id="L168">      val winSpec = Window</span>
+<span class="fc" id="L169">        .orderBy(col(universal_string_id_col).asc)</span>
+
+<span class="fc" id="L171">      val new_numeric_ids =expectedStringIds</span>
+<span class="fc" id="L172">        .withColumn(universal_numeric_id_col, row_number().over(winSpec)+lit(max_numeric_id))</span>
+
+<span class="fc" id="L174">      val expected_new_universal = UniversalUniqueIds.union(new_numeric_ids)</span>
+
+<span class="fc" id="L176">      expectedStringIds=expected_new_universal.select(universal_string_id_col).toDF()</span>
+
+<span class="fc" id="L178">      actualUniversalDF = newUniversal.toDF()</span>
+<span class="fc" id="L179">      actualUniversalDFCount = newUniversal.count()</span>
+<span class="fc" id="L180">      logger.info(s&quot;actual Universal ${key_Type} ${dataset_Type} ID Count is :&quot; + actualUniversalDFCount)</span>
+
+      /** 7- validate the expected universal  Ids count is same as actual universal unique count*/
+<span class="fc" id="L183">      ValidationUtils.validateCount(newUniversal,expected_new_universal)</span>
+
+<span class="fc" id="L185">      val expectedUniversalData=newUniversal.join(expectedStringIds,newUniversal(universal_string_id_col)===expectedStringIds(universal_string_id_col),&quot;inner&quot;)</span>
+<span class="fc" id="L186">      expectedUniversalMaxId=expectedUniversalData.select(max(col(universal_numeric_id_col).cast(IntegerType))).first().getAs[Int](0)</span>
+
+<span class="fc" id="L188">      logger.info(s&quot;expected Max Ids for  Universal ${key_Type} ${dataset_Type} Id:&quot;+expectedUniversalMaxId)</span>
+
+      /** 8- validate the maximum universal Ids  is equal to expected Ids*/
+<span class="fc" id="L191">      validateMaximumCount(newUniversal,universal_numeric_id_col,expectedUniversalIds,s&quot;Universal ${key_Type} ${dataset_Type} Id&quot;)</span>
+
+
+      /** 9- validate the minimum universal Ids  is equal to minimum value of old universal Id*/
+<span class="fc" id="L195">      validateMinimumCount(actualUniversalDF,universal_numeric_id_col,UniversalUniqueIds,s&quot;Universal ${key_Type} ${dataset_Type} Id&quot;)</span>
+
+<span class="fc" id="L197">      filteredParquetDF = actualUniversalDF.drop(universal_numeric_id_col)</span>
+<span class="fc" id="L198">      numericIdDF = actualUniversalDF.select(universal_numeric_id_col)</span>
+
+      /** 10- each string_Ids present in universal Ids have corresponding numeric Id*/
+<span class="fc" id="L201">      ValidationUtils.validateCount(filteredParquetDF,numericIdDF)</span>
+<span class="fc" id="L202">      logger.info(s&quot;each string_Ids in universal Ids have corresponding numeric Id for  Universal ${key_Type} ${dataset_Type} Ids&quot;)</span>
+
+     /** 12- validate the max Id in Quarterly Id matched with universal Id Max value*/
+<span class="fc" id="L205">      validateMaximumCount(quarterlyIds,universal_numeric_id_col,newUniversal,s&quot;Quarterly ${key_Type} ${dataset_Type} Id&quot;)</span>
+
+
+    })
+
+<span class="fc" id="L210">    true</span>
+  }
+  /** validate  count of two dataframe*/
+  def validateCount(actual:DataFrame, expected:DataFrame,FieldName:String):Boolean={
+<span class="fc" id="L214">    val actualDFCount=actual.count()</span>
+<span class="fc" id="L215">    val expectedDFCount=expected.count()</span>
+<span class="pc bpc" id="L216" title="1 of 2 branches missed.">    if(!(actualDFCount ==expectedDFCount)) {</span>
+<span class="nc" id="L217">      throw new RuntimeException(</span>
+<span class="nc" id="L218">        s&quot;Actual file count ${actualDFCount} is not same as Expected count ${expectedDFCount}  for ${FieldName}&quot;)</span>
+    }
+<span class="fc" id="L220">    logger.info(  s&quot;Actual file count ${actualDFCount} is  same as Expected count ${expectedDFCount}  for ${FieldName}&quot;)</span>
+<span class="fc" id="L221">    true</span>
+  }
+  /** validate the discount of dataframe*/
+  def validateDistinctCount(actual:DataFrame,fieldName:String):Boolean={
+<span class="fc" id="L225">    var actualCount=actual.count()</span>
+<span class="fc" id="L226">    var expectedDistinctCount=actual.distinct.count()</span>
+<span class="pc bpc" id="L227" title="1 of 2 branches missed.">    if(!(actualCount==expectedDistinctCount)) {</span>
+<span class="nc" id="L228">      throw new RuntimeException(</span>
+<span class="nc" id="L229">        s&quot; count ${actualCount} is not same as distinct count ${expectedDistinctCount}  for ${fieldName}&quot;)</span>
+    }
+<span class="fc" id="L231">    logger.info(  s&quot;count ${actualCount} is  same as distinct count ${expectedDistinctCount} for ${fieldName}&quot;)</span>
+<span class="fc" id="L232">    true</span>
+  }
+  /** validate that expected column data and actual column data is same*/
+  def validateColumnData(filteredParquetDf:DataFrame, expectedUniqueIdDf:DataFrame,dataset_Type:String):Boolean={
+
+<span class="nc" id="L237">    var differenceOfIds=expectedUniqueIdDf.except(filteredParquetDf)</span>
+<span class="nc" id="L238">    var countOfIds=differenceOfIds.count()</span>
+<span class="nc" id="L239">    differenceOfIds= filteredParquetDf.except(expectedUniqueIdDf)</span>
+<span class="nc" id="L240">    val expectedDiffCount=0</span>
+<span class="nc bnc" id="L241" title="All 2 branches missed.">    if(!(countOfIds.equals(expectedDiffCount.toLong)))</span>
+    {
+<span class="nc" id="L243">      throw new RuntimeException(</span>
+<span class="nc" id="L244">        s&quot;Difference of expected string_Ids  with actual String_Ids count ${countOfIds} is not same as Expected count 0  for ${dataset_Type}&quot;)</span>
+    }
+    else
+    {
+<span class="nc" id="L248">      logger.info(s&quot;Difference of expected string_Ids  with actual String_Ids count ${countOfIds} is  same as Expected count 0 for ${dataset_Type}&quot;)</span>
+    }
+
+<span class="nc" id="L251">    countOfIds=differenceOfIds.count()</span>
+<span class="nc bnc" id="L252" title="All 2 branches missed.">    if(!(countOfIds==expectedDiffCount.toLong))</span>
+    {
+<span class="nc" id="L254">      throw new RuntimeException(</span>
+<span class="nc" id="L255">        s&quot;Difference of  actual String_Ids   with  expected string_Ids count ${countOfIds} is not same as Expected count 0 &quot;)</span>
+    }
+    else
+    {
+<span class="nc" id="L259">      logger.info(s&quot;Difference of actual String_Ids  with expected string_Ids count ${countOfIds} is  same as Expected count 0 &quot;)</span>
+    }
+
+<span class="nc" id="L262">    true</span>
+  }
+
+
+  def validateMinimumCount(actualDataframe:DataFrame,columnName:String,expectedDataframe:DataFrame,IdType:String):Boolean={
+<span class="fc" id="L267">    val minValue=actualDataframe.select(min(col(columnName).cast(IntegerType))).first().getAs[Int](0)</span>
+<span class="fc" id="L268">    var expectedCount=expectedDataframe.select(min(col(columnName).cast(IntegerType))).first().getAs[Int](0)</span>
+<span class="pc bpc" id="L269" title="1 of 2 branches missed.">    if(expectedCount==0)</span>
+<span class="fc" id="L270">      expectedCount=1</span>
+<span class="pc bpc" id="L271" title="1 of 2 branches missed.">    if(!(minValue ==expectedCount)) {</span>
+<span class="nc" id="L272">      throw new RuntimeException(</span>
+<span class="nc" id="L273">        s&quot;Actual min value of ${IdType} is  ${minValue} and not same as expected min value ${expectedCount} &quot;)</span>
+    }
+<span class="fc" id="L275">    logger.info(  s&quot;Actual min value  of ${IdType} is ${minValue} and  same as expected min value ${expectedCount} &quot;)</span>
+<span class="fc" id="L276">    true</span>
+  }
+  def validateMaximumCount(parquetDataframe:DataFrame,columnName:String,ExpectedCount:Long,IdType:String):Boolean={
+<span class="fc" id="L279">    val maxValue=parquetDataframe.select(max(col(columnName).cast(IntegerType))).first().getAs[Int](0)</span>
+
+<span class="pc bpc" id="L281" title="1 of 2 branches missed.">    if(!(maxValue ==ExpectedCount)) {</span>
+<span class="nc" id="L282">      throw new RuntimeException(</span>
+<span class="nc" id="L283">        s&quot;Actual max value of ${IdType} is  ${maxValue} and not  same as expected maximum count ${ExpectedCount} &quot;)</span>
+    }
+<span class="fc" id="L285">    logger.info(  s&quot;Actual max value of ${IdType}  is ${maxValue} is  same as expected maximum count ${ExpectedCount} &quot;)</span>
+<span class="fc" id="L286">    true</span>
+  }
+
+  def validateMaximumCount(parquetDataframe:DataFrame,columnName:String,expectedDataframe:DataFrame,IdType:String):Boolean={
+<span class="fc" id="L290">    val maxValue=parquetDataframe.select(max(col(columnName).cast(IntegerType))).first().getAs[Int](0)</span>
+<span class="fc" id="L291">    val expectedCount=expectedDataframe.select(max(col(columnName).cast(IntegerType))).first().getAs[Int](0)</span>
+<span class="pc bpc" id="L292" title="1 of 2 branches missed.">    if(!(maxValue == expectedCount)) {</span>
+<span class="nc" id="L293">      throw new RuntimeException(</span>
+<span class="nc" id="L294">        s&quot;Actual max value of ${IdType} is  ${maxValue} and not  same as expected maximum count ${expectedCount} &quot;)</span>
+    }
+<span class="fc" id="L296">    logger.info(  s&quot;Actual max value of ${IdType}  is ${maxValue} is  same as expected maximum count ${expectedCount} &quot;)</span>
+<span class="fc" id="L297">    true</span>
+  }
+
+<span class="fc" id="L300">  override def run(args: JSONObject): Unit = {</span>
+
+<span class="fc" id="L302">    val marketName = args.getString(&quot;marketName&quot;)</span>
+<span class="fc" id="L303">    val acxiom_path = args.getString(&quot;acxiom_path&quot;)</span>
+<span class="fc" id="L304">    val acxiom_mbid_col = args.getString(&quot;acxiom_mbid_col&quot;)</span>
+<span class="fc" id="L305">    val acxiom_hhid_col = args.getString(&quot;acxiom_hhid_col&quot;)</span>
+<span class="fc" id="L306">    val input_columns = args.getSeq[String](&quot;columns&quot;)</span>
+<span class="fc" id="L307">    val universal_numeric_id_col = args.getString(&quot;universal_numeric_id_col&quot;)</span>
+<span class="fc" id="L308">    val universal_string_id_col = args.getString(&quot;universal_string_id_col&quot;)</span>
+<span class="fc" id="L309">    val dataset_id_col = args.getString(&quot;dataset_id_col&quot;)</span>
+<span class="fc" id="L310">    val subsets = args.getSeq[JSONObject](&quot;subsets&quot;)</span>
+<span class="fc" id="L311">      .map(obj =&gt; (obj.getString(&quot;dataset_type&quot;), obj.getString(&quot;quarterly_output_path&quot;),obj.getString(&quot;universal_output_path&quot;),obj.getString(&quot;Universal_input_path&quot;),obj.getString(&quot;key_type&quot;)))</span>
+    if(!(
+<span class="pc bpc" id="L313" title="1 of 2 branches missed.">      validation(marketName,</span>
+<span class="fc" id="L314">        acxiom_path,</span>
+<span class="fc" id="L315">        acxiom_mbid_col,</span>
+<span class="fc" id="L316">        acxiom_hhid_col,</span>
+<span class="fc" id="L317">        input_columns,</span>
+<span class="fc" id="L318">        universal_numeric_id_col,</span>
+<span class="fc" id="L319">        universal_string_id_col,</span>
+<span class="fc" id="L320">        dataset_id_col,</span>
+<span class="fc" id="L321">        subsets</span>
+      ))){
+<span class="nc" id="L323">      throw new RuntimeException(&quot;-----------------Uniqueid is not correct---------------------&quot;)</span>
+    }
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

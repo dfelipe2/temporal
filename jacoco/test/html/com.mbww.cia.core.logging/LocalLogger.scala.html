@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>LocalLogger.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.core.logging</a> &gt; <span class="el_source">LocalLogger.scala</span></div><h1>LocalLogger.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.core.logging
+
+import com.mbww.cia.core.logging.CIALogger.MessageAttribute
+import org.slf4j.LoggerFactory
+
+object LocalLogger {
+
+  class LocalLoggerBuilder {
+
+<span class="nc" id="L10">    var _name: Option[String] = None</span>
+
+    def forName(name: String): LocalLoggerBuilder = {
+
+<span class="nc" id="L14">      _name = Option(name)</span>
+<span class="nc" id="L15">      this</span>
+    }
+
+    def build(): LocalLogger = {
+<span class="nc" id="L19">      new LocalLogger(_name)</span>
+    }
+  }
+
+<span class="nc" id="L23">  def getBuilder() = new LocalLoggerBuilder</span>
+}
+
+<span class="nc" id="L26">class LocalLogger private(name: Option[String]) extends CIALogger {</span>
+
+<span class="nc" id="L28">  val internal_log = LoggerFactory.getLogger(name.getOrElse(&quot;&quot;))</span>
+
+  def getStringMessage(msg: String, attrs: Seq[MessageAttribute]): String = {
+
+<span class="nc" id="L32">    attrs.foldLeft(s&quot;CIA $msg\n&quot;)((acc, attr) =&gt; {</span>
+<span class="nc" id="L33">      acc+s&quot;{${attr.key}}=&gt;${attr.value}\n&quot;</span>
+    })
+  }
+
+  override def info(msg: String, attrs: MessageAttribute*): Unit = {
+<span class="nc" id="L38">    internal_log.info(getStringMessage(msg, attrs))</span>
+  }
+
+  override def debug(msg: String, attrs: MessageAttribute*): Unit = {
+<span class="nc" id="L42">    internal_log.debug(getStringMessage(msg, attrs))</span>
+  }
+
+  override def error(msg: String, attrs: MessageAttribute*): Unit = {
+<span class="nc" id="L46">    internal_log.error(getStringMessage(msg, attrs))</span>
+  }
+
+  override def warn(msg: String, attrs: MessageAttribute*): Unit = {
+<span class="nc" id="L50">    internal_log.warn(getStringMessage(msg, attrs))</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

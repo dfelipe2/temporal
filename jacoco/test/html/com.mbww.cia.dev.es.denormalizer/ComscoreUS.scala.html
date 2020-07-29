@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ComscoreUS.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.es.denormalizer</a> &gt; <span class="el_source">ComscoreUS.scala</span></div><h1>ComscoreUS.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.es.denormalizer
+
+import com.mbww.cia.common.Module
+import com.mbww.cia.common.Spark._
+import org.apache.spark.sql.SaveMode
+import org.json.JSONObject
+
+<span class="fc" id="L8">class ComscoreUS extends Module {</span>
+
+
+  def generateSQL(comscoreCwParquetPath: String,
+                  comscoreFactParquetBasePath: String,
+                  infobasePath: String,
+                  outputPath: String): Unit = {
+
+<span class="fc" id="L16">    val comscoreCrosswalkData = spark.read.load(comscoreFactParquetBasePath)</span>
+<span class="fc" id="L17">    val comscoreDimensionData = spark.read.load(comscoreCwParquetPath)</span>
+<span class="fc" id="L18">    val factualUniquekeys = spark.read.load(infobasePath)</span>
+<span class="fc" id="L19">    val joinedDf = comscoreDimensionData.join(comscoreCrosswalkData,</span>
+<span class="fc" id="L20">      comscoreDimensionData(&quot;comscore_person_id&quot;) === comscoreCrosswalkData(&quot;comscore_person_id&quot;), &quot;inner&quot;)</span>
+<span class="fc" id="L21">    val resultDF = joinedDf.join(factualUniquekeys, joinedDf(&quot;consumer_pel&quot;) === factualUniquekeys(&quot;mbid_value&quot;), &quot;inner&quot;)</span>
+<span class="fc" id="L22">      .select(&quot;mbid_value&quot;, &quot;hhid_value&quot;, &quot;domain_name&quot;)</span>
+
+<span class="fc" id="L24">    resultDF</span>
+<span class="fc" id="L25">      .write.mode(SaveMode.Append)</span>
+<span class="fc" id="L26">      .parquet(outputPath)</span>
+
+  }
+
+  override def run(args: JSONObject): Unit = {
+<span class="fc" id="L31">    val comscoreCwParquetPath = args.getString(&quot;comscoreCwParquetPath&quot;)</span>
+<span class="fc" id="L32">    val comscoreFactParquetBasePath = args.getString(&quot;comscoreFactParquetBasePath&quot;)</span>
+<span class="fc" id="L33">    val infobasePath = args.getString(&quot;infobasePath&quot;)</span>
+<span class="fc" id="L34">    val outputPath = args.getString(&quot;outputPath&quot;)</span>
+
+<span class="fc" id="L36">    generateSQL(</span>
+<span class="fc" id="L37">      comscoreCwParquetPath,</span>
+<span class="fc" id="L38">      comscoreFactParquetBasePath,</span>
+<span class="fc" id="L39">      infobasePath,</span>
+<span class="fc" id="L40">      outputPath)</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

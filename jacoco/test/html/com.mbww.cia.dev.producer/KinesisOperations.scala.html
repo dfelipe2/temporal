@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>KinesisOperations.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.producer</a> &gt; <span class="el_source">KinesisOperations.scala</span></div><h1>KinesisOperations.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.producer
+
+import java.util
+
+import com.amazonaws.services.kinesis.{AmazonKinesisClientBuilder, model}
+import com.amazonaws.services.kinesis.model.{GetShardIteratorRequest, Record}
+
+object KinesisOperations {
+
+  def createStream(region: String, streamName: String, shardCount: Int): Unit = {
+<span class="nc" id="L11">    val kinesis = AmazonKinesisClientBuilder.standard().withRegion(region).build()</span>
+<span class="nc" id="L12">    kinesis.createStream(streamName, shardCount)</span>
+<span class="nc" id="L13">    awaitStreamCreation(region, streamName)</span>
+  }
+
+<span class="nc" id="L16">  private def awaitStreamCreation(region: String, streamName: String): Unit = {</span>
+<span class="nc" id="L17">    val kinesis = AmazonKinesisClientBuilder.standard().withRegion(region).build()</span>
+<span class="nc" id="L18">    var isReady = false</span>
+<span class="nc" id="L19">    val timeout = 10 * 60 * 1000 // 10 minutes</span>
+<span class="nc" id="L20">    val startTime = System.currentTimeMillis()</span>
+<span class="nc" id="L21">    do {</span>
+<span class="nc" id="L22">      try {</span>
+<span class="nc" id="L23">        val status = kinesis.describeStream(streamName).getStreamDescription.getStreamStatus</span>
+<span class="nc" id="L24">        println(&quot;Stream status: &quot; + status)</span>
+<span class="nc bnc" id="L25" title="All 2 branches missed.">        if (&quot;ACTIVE&quot;.equals(status)) {</span>
+<span class="nc" id="L26">          isReady = true</span>
+        }
+      } catch {
+        case _: Exception =&gt;
+<span class="nc" id="L30">          println(&quot;Waiting for stream creation...&quot;)</span>
+      }
+<span class="nc" id="L32">      val currentTime = System.currentTimeMillis()</span>
+<span class="nc bnc" id="L33" title="All 2 branches missed.">      if (currentTime - startTime &lt; timeout) {</span>
+<span class="nc" id="L34">        Thread.sleep(3000)</span>
+      } else {
+<span class="nc" id="L36">        throw new RuntimeException(&quot;Timeout waiting for creation of Kinesis stream: &quot; + streamName)</span>
+      }
+<span class="nc bnc" id="L38" title="All 2 branches missed.">    } while (!isReady)</span>
+  }
+
+  def deleteStream(region: String, streamName: String): Unit = {
+<span class="nc" id="L42">    val kinesis = AmazonKinesisClientBuilder.standard().withRegion(region).build()</span>
+<span class="nc" id="L43">    kinesis.deleteStream(streamName)</span>
+  }
+
+  def getShardIterator(region: String, streamName: String): String = {
+<span class="nc" id="L47">    val req = new GetShardIteratorRequest</span>
+<span class="nc" id="L48">    req.setStreamName(streamName)</span>
+<span class="nc" id="L49">    req.setShardId(&quot;shardId-000000000000&quot;)</span>
+<span class="nc" id="L50">    req.setShardIteratorType(&quot;LATEST&quot;)</span>
+<span class="nc" id="L51">    val client = AmazonKinesisClientBuilder.standard().withRegion(region).build()</span>
+<span class="nc" id="L52">    val resp = client.getShardIterator(req)</span>
+<span class="nc" id="L53">    resp.getShardIterator</span>
+  }
+
+  def getRecords(shardIterator: String, region: String): util.List[Record] = {
+<span class="nc" id="L57">    val req = new model.GetRecordsRequest</span>
+<span class="nc" id="L58">    req.setShardIterator(shardIterator)</span>
+<span class="nc" id="L59">    val client = AmazonKinesisClientBuilder.standard().withRegion(region).build()</span>
+<span class="nc" id="L60">    val resp = client.getRecords(req)</span>
+<span class="nc" id="L61">    resp.getRecords</span>
+  }
+<span class="nc" id="L63">}</span>
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

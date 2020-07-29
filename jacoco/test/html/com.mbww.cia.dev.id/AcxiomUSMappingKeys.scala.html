@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AcxiomUSMappingKeys.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.id</a> &gt; <span class="el_source">AcxiomUSMappingKeys.scala</span></div><h1>AcxiomUSMappingKeys.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.id
+
+import com.mbww.cia.common.Spark._
+import com.mbww.cia.common.{Constants, Module}
+import org.json.JSONObject
+import AcxiomUSMappingKeys._
+import org.apache.spark.sql.SaveMode
+
+object AcxiomUSMappingKeys {
+
+<span class="nc" id="L11">  val MBID_STRING = &quot;mbid_value&quot;</span>
+<span class="nc" id="L12">  val HHID_STRING = &quot;hhid_value&quot;</span>
+<span class="nc" id="L13">  val MBID_NUMERIC = &quot;mbid&quot;</span>
+<span class="nc" id="L14">  val HHID_NUMERIC = &quot;hhid&quot;</span>
+}
+
+<span class="nc" id="L17">class AcxiomUSMappingKeys extends Module {</span>
+
+<span class="nc bnc" id="L19" title="All 51 branches missed.">  case class UniqueIdInfo (uniqueIdMbidPath: String,</span>
+<span class="nc" id="L20">                           uniqueIdHhidPath: String,</span>
+<span class="nc" id="L21">                           uniqueIdMbidStringCol: String,</span>
+<span class="nc" id="L22">                           uniqueIdHhidStringCol: String)</span>
+
+  def generate(acxiomPath: String,
+               acxiomMbidCol: String,
+               acxiomHhidcol: String,
+               uniqueIdInfo: UniqueIdInfo,
+               outputPath: String): Unit = {
+
+<span class="nc" id="L30">    val acxiom = spark.read.parquet(acxiomPath)</span>
+<span class="nc" id="L31">    val mbid = spark.read.parquet(uniqueIdInfo.uniqueIdMbidPath)</span>
+<span class="nc" id="L32">    val hhid = spark.read.parquet(uniqueIdInfo.uniqueIdHhidPath)</span>
+
+<span class="nc" id="L34">    val universalMbidNumericCol = mbid.drop(uniqueIdInfo.uniqueIdMbidStringCol).columns(0)</span>
+<span class="nc" id="L35">    val universalHhidNumericCol = hhid.drop(uniqueIdInfo.uniqueIdHhidStringCol).columns(0)</span>
+
+<span class="nc" id="L37">    val withMbid = acxiom</span>
+<span class="nc" id="L38">      .join(mbid, acxiom(acxiomMbidCol) === mbid(uniqueIdInfo.uniqueIdMbidStringCol))</span>
+<span class="nc" id="L39">      .select(</span>
+<span class="nc" id="L40">        mbid(uniqueIdInfo.uniqueIdMbidStringCol).as(MBID_STRING),</span>
+<span class="nc" id="L41">        mbid(universalMbidNumericCol).as(MBID_NUMERIC))</span>
+
+<span class="nc" id="L43">    val withHhid = acxiom</span>
+<span class="nc" id="L44">      .join(hhid, acxiom(acxiomHhidcol) === hhid(uniqueIdInfo.uniqueIdHhidStringCol))</span>
+<span class="nc" id="L45">      .select(</span>
+<span class="nc" id="L46">        hhid(uniqueIdInfo.uniqueIdHhidStringCol).as(HHID_STRING),</span>
+<span class="nc" id="L47">        hhid(universalHhidNumericCol).as(HHID_NUMERIC),</span>
+<span class="nc" id="L48">        acxiom(acxiomMbidCol))</span>
+
+<span class="nc" id="L50">    val mappingKeys = withMbid</span>
+<span class="nc" id="L51">      .join(withHhid, withMbid(MBID_STRING) === withHhid(acxiomMbidCol))</span>
+<span class="nc" id="L52">      .drop(withHhid(acxiomMbidCol))</span>
+
+<span class="nc" id="L54">    mappingKeys</span>
+<span class="nc" id="L55">      .write</span>
+<span class="nc" id="L56">      .mode(SaveMode.Overwrite)</span>
+<span class="nc" id="L57">      .format(Constants.PARQUET_FORMAT_SPEC)</span>
+<span class="nc" id="L58">      .save(outputPath)</span>
+  }
+
+  override def run(args: JSONObject): Unit = {
+
+<span class="nc" id="L63">    val acxiomPath = args.getString(&quot;acxiom_path&quot;)</span>
+<span class="nc" id="L64">    val acxiomMbidCol = args.getString(&quot;acxiom_mbid_col&quot;)</span>
+<span class="nc" id="L65">    val acxiomHhidCol = args.getString(&quot;acxiom_hhid_col&quot;)</span>
+<span class="nc" id="L66">    val uniqueIdMbidPath = args.getString(&quot;unique_id_mbid_path&quot;)</span>
+<span class="nc" id="L67">    val uniqueIdHhidPath = args.getString(&quot;unique_id_hhid_path&quot;)</span>
+<span class="nc" id="L68">    val uniqueIdMbidStringCol = args.getString(&quot;unique_id_mbid_string_col&quot;)</span>
+<span class="nc" id="L69">    val uniqueIdHhidStringCol = args.getString(&quot;unique_id_hhid_string_col&quot;)</span>
+<span class="nc" id="L70">    val outputPath = args.getString(&quot;output_path&quot;)</span>
+
+<span class="nc" id="L72">    val uniqueIdInfo = UniqueIdInfo(uniqueIdMbidPath,uniqueIdHhidPath,uniqueIdMbidStringCol,uniqueIdHhidStringCol)</span>
+
+<span class="nc" id="L74">    generate(</span>
+<span class="nc" id="L75">      acxiomPath,</span>
+<span class="nc" id="L76">      acxiomMbidCol,</span>
+<span class="nc" id="L77">      acxiomHhidCol,</span>
+<span class="nc" id="L78">      uniqueIdInfo,</span>
+<span class="nc" id="L79">      outputPath)</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

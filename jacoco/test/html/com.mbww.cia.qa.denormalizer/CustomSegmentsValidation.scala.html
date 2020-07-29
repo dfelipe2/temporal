@@ -1,0 +1,254 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CustomSegmentsValidation.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.qa.denormalizer</a> &gt; <span class="el_source">CustomSegmentsValidation.scala</span></div><h1>CustomSegmentsValidation.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.qa.denormalizer
+
+import java.io.FileNotFoundException
+
+
+import org.apache.log4j.{Level, Logger}
+import org.json.JSONObject
+import org.slf4j.LoggerFactory
+import com.mbww.cia.common.Spark.spark
+import org.apache.spark.sql.functions.{col, lit, to_date}
+import com.mbww.cia.common.Module
+import org.apache.spark.sql.types._
+
+<span class="fc" id="L14">class CustomSegmentsValidation extends Module {</span>
+
+<span class="fc" id="L16">  Logger.getLogger(&quot;org&quot;).setLevel(Level.ERROR)</span>
+<span class="fc" id="L17">  Logger.getLogger(&quot;org&quot;).setLevel(Level.WARN)</span>
+
+<span class="pc" id="L19">  val logger = LoggerFactory.getLogger(&quot;CIA Pipeline&quot;)</span>
+<span class="pc" id="L20">  private val dataset_TSV_DataProvider_Col = &quot;Data Provider&quot;</span>
+<span class="pc" id="L21">  private val dataset_TSV_DataSource_Col = &quot;Data Source&quot;</span>
+<span class="fc" id="L22">  private val datasetBitmap_TSV_AttributeID_Col = &quot;Attribute Id&quot;</span>
+<span class="fc" id="L23">  private val datasetBitmap_TSV_BitmapTYP_Col = &quot;Bitmap Type&quot;</span>
+<span class="fc" id="L24">  private val datasetBitmap_TSV_MBIDCount_Col = &quot;MBID Count&quot;</span>
+<span class="fc" id="L25">  private val datasetBitmap_TSV_HHIDCount_Col = &quot;HHID Count&quot;</span>
+
+  def validation(marketName: String,
+                 bitmapType: String,
+                 infobase_path: String,
+                 dataProviderName: String,
+                 input_raw_path: String,
+                 dataset_tsv_path: String,
+<span class="fc" id="L33">                 bitmapFilePath: String): Unit = {</span>
+
+<span class="fc" id="L35">    val datasetTSV_DF = spark.read</span>
+<span class="fc" id="L36">      .option(&quot;Header&quot;,&quot;True&quot;)</span>
+<span class="fc" id="L37">      .option(&quot;delimiter&quot;,&quot;\t&quot;)</span>
+<span class="fc" id="L38">      .csv(dataset_tsv_path)</span>
+
+    //datasetTSV_DF.show(5,false)
+
+<span class="fc" id="L42">    val dataProviderSplit = dataProviderName.split(&quot;_&quot;)</span>
+    //println(&quot;Value of dataProviderSplit =&gt; &quot;+dataProviderSplit.mkString(&quot; || &quot;))
+
+<span class="pc bpc" id="L45" title="1 of 2 branches missed.">    val all_ValuesDF = if(dataProviderSplit.size == 2){</span>
+<span class="nc" id="L46">      datasetTSV_DF</span>
+<span class="nc" id="L47">        .filter(col(dataset_TSV_DataProvider_Col).equalTo(dataProviderSplit(0)))</span>
+<span class="nc" id="L48">        .filter(col(dataset_TSV_DataSource_Col).equalTo(dataProviderSplit(1)))</span>
+    }else{
+<span class="fc" id="L50">      datasetTSV_DF.filter(col(&quot;Data Provider&quot;).equalTo(dataProviderName)).limit(1)</span>
+    }
+
+<span class="fc" id="L53">    val all_Values = all_ValuesDF.collect().mkString(&quot;&quot;)</span>
+<span class="fc" id="L54">      .replace(&quot;[&quot;,&quot;&quot;)</span>
+<span class="fc" id="L55">      .replace(&quot;]&quot;,&quot;&quot;)</span>
+<span class="fc" id="L56">      .split(&quot;,&quot;)</span>
+
+<span class="pc bpc" id="L58" title="4 of 6 branches missed.">    val schema = if (marketName == &quot;US&quot;) {</span>
+<span class="fc" id="L59">      StructType(Array(</span>
+<span class="fc" id="L60">        StructField(&quot;mbid&quot;, StringType, true),</span>
+<span class="fc" id="L61">        StructField(&quot;hhid&quot;, StringType, true)</span>
+      )
+      )
+    }else{
+<span class="nc" id="L65">      StructType(Array(StructField(&quot;StringID&quot;, StringType, true), StructField(&quot;NumericID&quot;, StringType, true)))</span>
+    }
+
+<span class="fc" id="L68">    val datasetBitmapTSV_DF = spark.read</span>
+<span class="fc" id="L69">      .option(&quot;Header&quot;,&quot;True&quot;)</span>
+<span class="fc" id="L70">      .option(&quot;delimiter&quot;,&quot;\t&quot;)</span>
+<span class="fc" id="L71">      .csv(bitmapFilePath)</span>
+
+<span class="fc" id="L73">    val datasetBitmapTSV_Values = datasetBitmapTSV_DF</span>
+<span class="fc" id="L74">      .select(datasetBitmap_TSV_AttributeID_Col,datasetBitmap_TSV_BitmapTYP_Col,datasetBitmap_TSV_MBIDCount_Col,datasetBitmap_TSV_HHIDCount_Col)</span>
+<span class="fc" id="L75">      .collect().mkString(&quot;;&quot;)</span>
+<span class="fc" id="L76">      .replace(&quot;[&quot;,&quot;&quot;).replace(&quot;]&quot;,&quot;&quot;)</span>
+<span class="fc" id="L77">      .split(&quot;;&quot;)</span>
+
+<span class="fc" id="L79">    println(&quot;Value of datasetBitmapTSV_Values =&gt; &quot;+datasetBitmapTSV_Values.mkString(&quot; || &quot;))</span>
+
+<span class="fc" id="L81">    val size_datasetBitmapTSV_Values = datasetBitmapTSV_Values.size</span>
+
+<span class="fc" id="L83">    val attrID = Array.ofDim[String](size_datasetBitmapTSV_Values)</span>
+<span class="fc" id="L84">    val bitmap_TYP = Array.ofDim[String](size_datasetBitmapTSV_Values)</span>
+<span class="fc" id="L85">    val mbid_Count = Array.ofDim[String](size_datasetBitmapTSV_Values)</span>
+<span class="fc" id="L86">    val hhid_Count = Array.ofDim[String](size_datasetBitmapTSV_Values)</span>
+
+<span class="pc" id="L88">    for(i &lt;- 0 until datasetBitmapTSV_Values.size){</span>
+<span class="fc" id="L89">      val arr = datasetBitmapTSV_Values(i).split(&quot;,&quot;)</span>
+<span class="fc" id="L90">      attrID(i)=arr(0)</span>
+<span class="fc" id="L91">      bitmap_TYP(i)=arr(1)</span>
+<span class="fc" id="L92">      mbid_Count(i)=arr(2)</span>
+<span class="fc" id="L93">      hhid_Count(i)=arr(3)</span>
+    }
+
+<span class="fc" id="L96">    println(&quot;Value of attrID =&gt; &quot;+attrID.mkString(&quot; || &quot;))</span>
+<span class="fc" id="L97">    println(&quot;Value of bitmap_TYP =&gt; &quot;+bitmap_TYP.mkString(&quot; || &quot;))</span>
+<span class="fc" id="L98">    println(&quot;Value of mbid_Count =&gt; &quot;+mbid_Count.mkString(&quot; || &quot;))</span>
+<span class="fc" id="L99">    println(&quot;Value of hhid_Count =&gt; &quot;+hhid_Count.mkString(&quot; || &quot;))</span>
+
+<span class="pc bpc" id="L101" title="4 of 6 branches missed.">    if(marketName == &quot;US&quot;){</span>
+
+<span class="fc" id="L103">      mbidCountValidation(all_Values,bitmapType,infobase_path,input_raw_path,attrID,bitmap_TYP,mbid_Count,schema)</span>
+<span class="fc" id="L104">      hhidCountValidation(all_Values,bitmapType,infobase_path,input_raw_path,attrID,bitmap_TYP,hhid_Count,schema)</span>
+
+    }else{
+<span class="nc" id="L107">      mbidCountValidation(all_Values,bitmapType,infobase_path,input_raw_path,attrID,bitmap_TYP,mbid_Count,schema)</span>
+    }
+
+  }
+
+  def mbidCountValidation(datasetValues: Array[String],
+                          bitmapType: String,
+                          infobase_path: String,
+                          input_raw_path: String,
+                          attrID: Array[String],
+                          bitmap_TYP: Array[String],
+                          mbid_Count: Array[String],
+                          schema: StructType): Boolean = {
+
+<span class="fc" id="L121">    val dataSetType = datasetValues(3)</span>
+<span class="fc" id="L122">    println(&quot;Value of dataSetType =&gt; &quot;+dataSetType)</span>
+
+<span class="pc bpc" id="L124" title="1 of 2 branches missed.">    if (!dataSetType.equals(&quot;Custom Attr&quot;))</span>
+    {
+<span class="nc" id="L126">      try{</span>
+
+<span class="pc" id="L128">        for(i &lt;- 0 until attrID.size){</span>
+<span class="fc" id="L129">          println(&quot;Value of attrID =&gt; &quot;+attrID(i))</span>
+<span class="fc" id="L130">          println(&quot;Value of bitmap_TYP =&gt; &quot;+bitmap_TYP(i))</span>
+<span class="pc bpc" id="L131" title="4 of 6 branches missed.">          if(bitmap_TYP(i)==bitmapType){</span>
+<span class="fc" id="L132">            println(&quot;Value of mbid_Count =&gt; &quot;+mbid_Count(i))</span>
+
+<span class="fc" id="L134">            println(&quot;Raw Path =&gt; &quot;+input_raw_path+&quot;AttributeName=&quot;+attrID(i)+&quot;/&quot;)</span>
+<span class="fc" id="L135">            val rawDF = spark.read</span>
+<span class="fc" id="L136">              .option(&quot;delimiter&quot;,&quot;\t&quot;)</span>
+<span class="fc" id="L137">              .schema(schema)</span>
+<span class="fc" id="L138">              .csv(input_raw_path+&quot;AttributeName=&quot;+attrID(i)+&quot;/&quot;)</span>
+
+<span class="fc" id="L140">            val uniqueID_DF = spark.read.parquet(infobase_path)</span>
+
+<span class="fc" id="L142">            val selectedDataFrame = uniqueID_DF.select(&quot;mbid&quot;, &quot;mbid_value&quot;)</span>
+<span class="fc" id="L143">            val expectedDF = selectedDataFrame.join(rawDF, selectedDataFrame(&quot;mbid_value&quot;) === rawDF(&quot;mbid&quot;), &quot;inner&quot;).select(selectedDataFrame.col(&quot;mbid&quot;))</span>
+
+<span class="fc" id="L145">            val expectedCount = expectedDF.distinct().count.toString</span>
+
+<span class="pc bpc" id="L147" title="4 of 6 branches missed.">            if (!(mbid_Count(i) == expectedCount)) {</span>
+<span class="nc" id="L148">              throw new RuntimeException(</span>
+<span class="nc" id="L149">                s&quot;Actual file count ${mbid_Count(i)} is not same as Expected count ${expectedCount} for Attribute ID =&gt; &quot;+attrID(i))</span>
+            }
+
+<span class="fc" id="L152">            println(&quot;Actual file count &quot;+mbid_Count(i)+&quot; is same as Expected count &quot;+expectedCount+&quot; for Attribute ID =&gt; &quot;+attrID(i))</span>
+          }
+        }
+
+      }catch{
+        case exp: FileNotFoundException =&gt;
+<span class="nc" id="L158">          logger.info(&quot;################### file is not present   &quot; + exp)</span>
+<span class="nc" id="L159">          return false</span>
+        case exp: ArrayIndexOutOfBoundsException =&gt;
+<span class="nc" id="L161">          logger.info(&quot;################### Array Index OutOf Bounds Exception  &quot; + exp)</span>
+<span class="nc" id="L162">          return false</span>
+        case exp: NullPointerException =&gt;
+<span class="nc" id="L164">          logger.info(&quot;null pointer  &quot; + exp)</span>
+<span class="nc" id="L165">          return false</span>
+      }
+    }
+
+<span class="fc" id="L169">    true</span>
+  }
+
+  def hhidCountValidation(datasetValues: Array[String],
+                          bitmapType: String,
+                          infobase_path: String,
+                          input_raw_path: String,
+                          attrID: Array[String],
+                          bitmap_TYP: Array[String],
+                          hhid_Count: Array[String],
+                          schema: StructType): Boolean = {
+
+<span class="fc" id="L181">    val dataSetType = datasetValues(3)</span>
+<span class="fc" id="L182">    println(&quot;Value of dataSetType =&gt; &quot;+dataSetType)</span>
+
+<span class="pc bpc" id="L184" title="1 of 2 branches missed.">    if (!dataSetType.equals(&quot;Custom Attr&quot;))</span>
+    {
+<span class="nc" id="L186">      try{</span>
+
+<span class="pc" id="L188">        for(i &lt;- 0 until attrID.size){</span>
+<span class="fc" id="L189">          println(&quot;Value of attrID =&gt; &quot;+attrID(i))</span>
+<span class="fc" id="L190">          println(&quot;Value of bitmap_TYP =&gt; &quot;+bitmap_TYP(i))</span>
+<span class="pc bpc" id="L191" title="4 of 6 branches missed.">          if(bitmap_TYP(i)==bitmapType){</span>
+<span class="fc" id="L192">            println(&quot;Value of hhid_Count =&gt; &quot;+hhid_Count(i))</span>
+
+<span class="fc" id="L194">            println(&quot;Raw Path =&gt; &quot;+input_raw_path+&quot;AttributeName=&quot;+attrID(i)+&quot;/&quot;)</span>
+<span class="fc" id="L195">            val rawDF = spark.read</span>
+<span class="fc" id="L196">              .option(&quot;delimiter&quot;,&quot;\t&quot;)</span>
+<span class="fc" id="L197">              .schema(schema)</span>
+<span class="fc" id="L198">              .csv(input_raw_path+&quot;AttributeName=&quot;+attrID(i)+&quot;/&quot;)</span>
+
+<span class="fc" id="L200">            val uniqueID_DF = spark.read.parquet(infobase_path)</span>
+
+<span class="fc" id="L202">            val selectedDataFrame = uniqueID_DF.select(&quot;hhid&quot;,&quot;hhid_value&quot;)</span>
+<span class="fc" id="L203">            val expectedDF = selectedDataFrame.join(rawDF,selectedDataFrame(&quot;hhid_value&quot;) === rawDF(&quot;hhid&quot;),&quot;inner&quot;).select(selectedDataFrame.col(&quot;hhid&quot;))</span>
+
+<span class="fc" id="L205">            val expectedCount = expectedDF.distinct().count.toString</span>
+
+<span class="pc bpc" id="L207" title="4 of 6 branches missed.">            if (!(hhid_Count(i) == expectedCount)) {</span>
+<span class="nc" id="L208">              throw new RuntimeException(</span>
+<span class="nc" id="L209">                s&quot;Actual file count ${hhid_Count(i)} is not same as Expected count ${expectedCount} for Attribute ID =&gt; &quot;+attrID(i))</span>
+            }
+
+<span class="fc" id="L212">            println(&quot;Actual file count &quot;+hhid_Count(i)+&quot; is same as Expected count &quot;+expectedCount+&quot; for Attribute ID =&gt; &quot;+attrID(i))</span>
+          }
+        }
+
+      }catch{
+        case exp: FileNotFoundException =&gt;
+<span class="nc" id="L218">          logger.info(&quot;################### file is not present   &quot; + exp)</span>
+<span class="nc" id="L219">          return false</span>
+        case exp: ArrayIndexOutOfBoundsException =&gt;
+<span class="nc" id="L221">          logger.info(&quot;################### Array Index OutOf Bounds Exception  &quot; + exp)</span>
+<span class="nc" id="L222">          return false</span>
+        case exp: NullPointerException =&gt;
+<span class="nc" id="L224">          logger.info(&quot;null pointer  &quot; + exp)</span>
+<span class="nc" id="L225">          return false</span>
+      }
+    }
+
+<span class="fc" id="L229">    true</span>
+  }
+
+  override def run(args: JSONObject): Unit = {
+
+<span class="fc" id="L234">    val marketName = args.getString(&quot;marketName&quot;)</span>
+    //val bucket = args.getString(&quot;bucket&quot;)
+<span class="fc" id="L236">    val bitmapType = args.getString(&quot;bitmapType&quot;)</span>
+<span class="fc" id="L237">    val infobase_path = args.getString(&quot;infobase_path&quot;)</span>
+<span class="fc" id="L238">    val dataProviderName = args.getString(&quot;dataProviderName&quot;)</span>
+<span class="fc" id="L239">    val input_raw_path = args.getString(&quot;input_raw_path&quot;)</span>
+<span class="fc" id="L240">    val dataset_tsv_path = args.getString(&quot;dataset_tsv_path&quot;)</span>
+<span class="fc" id="L241">    val bitmapFilePath = args.getString(&quot;bitmapFilePath&quot;)</span>
+
+<span class="fc" id="L243">    validation(marketName,</span>
+<span class="fc" id="L244">      bitmapType,</span>
+<span class="fc" id="L245">      infobase_path,</span>
+<span class="fc" id="L246">      dataProviderName,</span>
+<span class="fc" id="L247">      input_raw_path,</span>
+<span class="fc" id="L248">      dataset_tsv_path,</span>
+<span class="fc" id="L249">      bitmapFilePath)</span>
+
+  }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

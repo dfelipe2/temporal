@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PathUtils.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.common.utility.util</a> &gt; <span class="el_source">PathUtils.scala</span></div><h1>PathUtils.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.common.utility.util
+
+import org.apache.commons.lang3.StringUtils
+import org.apache.hadoop.fs.{FileSystem, Path}
+import scala.collection.mutable
+
+
+/**
+  * Represents an input path for an ETL task.
+  *
+  * @param basePath     This path is composed of the parts up to the first hive partition.
+  * @param relativePath This path is composed of the partition directories (e.g. directories like key=value).
+  */
+<span class="pc bnc" id="L14" title="All 27 branches missed.">case class EtlPath(basePath: String, relativePath: String = &quot;&quot;) {</span>
+<span class="fc" id="L15">  override def toString: String = s&quot;${StringUtils.stripEnd(basePath, &quot;/&quot;)}/$relativePath&quot;</span>
+}
+
+object PathUtils {
+
+  /**
+    * Strips the trailing slash off a path.
+    *
+    * @param path The path.
+    * @return
+    */
+<span class="fc" id="L26">  def stripSlash(path: String): String = StringUtils.stripEnd(path, &quot;/&quot;)</span>
+
+  /**
+    * Gets all the paths in a directory with at least one partition in the form key=value. It will return only the base
+    * path without the partitions.
+    *
+    * @param fileSystem The hadoop fileSystem object.
+    * @param inputPath  The starting point directory.
+    * @return An iterator of base paths.
+    */
+  def getBasePaths(fileSystem: FileSystem,
+                   inputPath: String): Iterator[String] = {
+<span class="fc" id="L38">    var depth: Option[Int] = None</span>
+<span class="fc" id="L39">    val paths = mutable.HashSet[Path]()</span>
+
+<span class="fc" id="L41">    val partitionDirs = for {</span>
+<span class="pc bpc" id="L42" title="1 of 2 branches missed.">      pathStatus &lt;- FileSystemSupport.listFilesInPath(inputPath, true)(fileSystem)</span>
+<span class="fc" id="L43">        .filter(_.isFile)</span>
+<span class="fc" id="L44">        .filterNot(_.getPath.toString.contains(&quot;SUCCESS&quot;))</span>
+<span class="fc" id="L45">      partitionPath = getFirstHivePartitionPath(pathStatus.getPath.getParent)</span>
+    } yield {
+<span class="pc" id="L47">      partitionPath match {</span>
+        // This is a file in a partition directory
+<span class="pc bpc" id="L49" title="1 of 2 branches missed.">        case Some(p) =&gt; p.depth() match {</span>
+          // Set the initial depth. All paths should have the same depth.
+<span class="fc bfc" id="L51" title="All 2 branches covered.">          case d if depth.isEmpty =&gt; {</span>
+<span class="fc" id="L52">            depth = Some(d)</span>
+<span class="fc" id="L53">            paths += p</span>
+<span class="fc" id="L54">            Some(p)</span>
+          }
+          // All paths should have the same depth as the first path found having a partition.
+<span class="pc bpc" id="L57" title="1 of 2 branches missed.">          case d if d != depth.get =&gt; throw new IllegalArgumentException(s&quot;Invalid directory structure at $p&quot;)</span>
+          case _ =&gt; {
+            // Avoid returning the same path more than once.
+<span class="pc bpc" id="L60" title="1 of 2 branches missed.">            if (!paths.contains(p)) {</span>
+<span class="fc" id="L61">              paths += p</span>
+<span class="fc" id="L62">              Some(p)</span>
+<span class="nc" id="L63">            } else None</span>
+          }
+        }
+        // The file's parent path doesn't have any partitions
+<span class="nc bnc" id="L67" title="All 2 branches missed.">        case None =&gt; None</span>
+      }
+    }
+<span class="fc" id="L70">    partitionDirs.filter(_.nonEmpty).map(_.get.toString)</span>
+  }
+
+  /**
+    * Gets the relative part of a path given a prefix. e.g. path: s3://a/b/c/relative/path prefix: s3://a/b/c -&gt; /relative/path
+    *
+    * @param prefix Prefix to be subtracted from the path.
+    * @param path   The file path.
+    * @return The path minus the prefix.
+    */
+  def getFileRelativePath(prefix: String, path: String): String = {
+<span class="pc bpc" id="L81" title="1 of 2 branches missed.">    val (_, _, prefixKey) = EtlPathDsl.parseEtlPath(prefix)</span>
+<span class="pc bpc" id="L82" title="1 of 2 branches missed.">    val (_, _, pathKey) = EtlPathDsl.parseEtlPath(path)</span>
+<span class="fc" id="L83">    StringUtils.difference(prefixKey, pathKey)</span>
+  }
+
+<span class="fc" id="L86">  private def getFirstHivePartitionPath(path: Path): Option[Path] = {</span>
+<span class="fc" id="L87">    val p = stripSlash(path.toString)</span>
+<span class="pc bpc" id="L88" title="1 of 2 branches missed.">    if (p == null) {</span>
+<span class="nc" id="L89">      None</span>
+<span class="fc bfc" id="L90" title="All 2 branches covered.">    } else if (p.split(&quot;/&quot;).last.contains(&quot;=&quot;)) {</span>
+<span class="fc" id="L91">      getFirstHivePartitionPath(path.getParent)</span>
+<span class="fc" id="L92">    } else Some(path)</span>
+  }
+<span class="fc" id="L94">}</span>
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

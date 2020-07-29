@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>NCSNielsen.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.denormalizer</a> &gt; <span class="el_source">NCSNielsen.scala</span></div><h1>NCSNielsen.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.denormalizer
+
+import com.mbww.cia.common.Spark._
+import com.mbww.cia.common.{Module, _}
+import org.apache.spark.sql.functions.{col, expr}
+import org.apache.spark.sql.{SaveMode}
+import org.json.JSONObject
+
+
+<span class="nc" id="L10">class NCSNielsen extends Module {</span>
+
+
+  def generate(nielsenNCSpath: String,
+               nielsenNCSCols: Seq[String],
+               nielsenNCSDeviceIdCol: String,
+               outputPath: String,
+<span class="nc" id="L17">               threadCount: Int = 1): Unit = {</span>
+
+<span class="nc" id="L19">    val cols = nielsenNCSCols :+ nielsenNCSDeviceIdCol</span>
+
+<span class="nc" id="L21">    val ncs = spark.read.parquet(nielsenNCSpath)</span>
+<span class="nc" id="L22">    val ncsJ = ncs.select(cols.map(c =&gt; col(c)): _*)</span>
+
+<span class="nc" id="L24">    val stackCols = nielsenNCSCols.map(c =&gt; &quot;'&quot; + c + &quot;',&quot; + c).mkString(&quot; &quot;)</span>
+<span class="nc" id="L25">    val numberOfCols = nielsenNCSCols.size.toString</span>
+
+<span class="nc" id="L27">    val unPivotNcs = ncsJ.select(col(nielsenNCSDeviceIdCol),</span>
+<span class="nc" id="L28">      expr(&quot;stack(&quot; + numberOfCols + &quot;,&quot; + stackCols + &quot;) as (AttributeName,boolean)&quot;))</span>
+<span class="nc" id="L29">      .where(&quot;boolean == 1&quot;)</span>
+<span class="nc" id="L30">      .select(nielsenNCSDeviceIdCol, &quot;AttributeName&quot;)</span>
+
+<span class="nc" id="L32">    unPivotNcs</span>
+<span class="nc" id="L33">      .write</span>
+<span class="nc" id="L34">      .mode(SaveMode.Overwrite)</span>
+<span class="nc" id="L35">      .option(&quot;mapreduce.fileoutputcommitter.algorithm.version&quot;, &quot;2&quot;)</span>
+<span class="nc" id="L36">      .save(outputPath)</span>
+  }
+
+  override def run(args: JSONObject): Unit = {
+
+<span class="nc" id="L41">    val nielsenNCSPath = args.getString(&quot;nielsenNCS_path&quot;)</span>
+<span class="nc" id="L42">    val nielsenNCSCols = args.getSeq[String](&quot;nielsenNCS_cols&quot;)</span>
+<span class="nc" id="L43">    val nielsenNCSDeviceIdcol = args.getString(&quot;nielsenNCS_device_id_col&quot;)</span>
+<span class="nc" id="L44">    val outputPath = args.getString(&quot;output_path&quot;)</span>
+<span class="nc" id="L45">    val threadCount = args.getOrElse[Int](&quot;thread_count&quot;, 1)</span>
+
+
+<span class="nc" id="L48">    generate(nielsenNCSPath,</span>
+<span class="nc" id="L49">      nielsenNCSCols,</span>
+<span class="nc" id="L50">      nielsenNCSDeviceIdcol,</span>
+<span class="nc" id="L51">      outputPath,</span>
+<span class="nc" id="L52">      threadCount)</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

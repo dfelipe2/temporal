@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ESKinesisSimmonsPublisher.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.producer</a> &gt; <span class="el_source">ESKinesisSimmonsPublisher.scala</span></div><h1>ESKinesisSimmonsPublisher.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.producer
+
+import com.mbww.cia.common.Spark.spark
+import com.mbww.cia.common.utility.util.DataFrameUtils
+import com.mbww.cia.common.{Module, _}
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.{Column, DataFrame}
+import org.json.JSONObject
+import org.slf4j.{Logger, LoggerFactory}
+
+/**
+  * Elastic Search Kinesis Simmons Publisher.
+  *
+  * This class contains the necessary logic to publish simmons
+  * punch code attribute records as messages in elastic search.
+  */
+<span class="nc" id="L17">class ESKinesisSimmonsPublisher extends Module with ESPublisher {</span>
+
+<span class="nc" id="L19">  val logger: Logger = LoggerFactory.getLogger(this.getClass.getSimpleName)</span>
+  import sparkSession.implicits._
+
+  /**
+    * Process Attributes.
+    *
+    * This is the main method of the processing, which invokes
+    * and coordinates the invocations to other steps.
+    *
+    * @param params ESPublisherParams instance
+    */
+  override def processAttributes(params: ESPublisherParams): Unit = {
+<span class="nc" id="L31">    logger.info(&quot;Loading the input datasets&quot;)</span>
+<span class="nc" id="L32">    val inputDF = getInputDF(params.inputPath, params.dropColumns)</span>
+<span class="nc" id="L33">    val metadataDF = getMetadataDF(params.metadataPath)</span>
+
+<span class="nc" id="L35">    logger.info(&quot;Filtering input data according to conditions...&quot;)</span>
+<span class="nc" id="L36">    val filteredInput = filterInputData(inputDF, metadataDF, params)</span>
+
+<span class="nc" id="L38">    logger.info(&quot;Getting Attribute Ids&quot;)</span>
+<span class="nc" id="L39">    val withAttributeIds = getAttributeIds(filteredInput, metadataDF, params)</span>
+
+<span class="nc" id="L41">    logger.info(&quot;Processing and publishing results to kinesis&quot;)</span>
+<span class="nc" id="L42">    val groupCols = Seq(params.mbIdCol, params.hhidCol).filter(_.trim.nonEmpty).map(col)</span>
+<span class="nc" id="L43">    processIndividualRecords(withAttributeIds, groupCols, params)</span>
+
+  }
+
+  private def filterInputData(inputDF: DataFrame,
+                              metadataDF: DataFrame,
+                              params: ESPublisherParams): DataFrame = {
+
+
+<span class="nc" id="L52">    val select = Seq(params.mbIdCol,</span>
+<span class="nc" id="L53">      params.hhidCol)</span>
+<span class="nc" id="L54">      .filter(_.trim.nonEmpty).map(col) ++ Seq(col(params.attributeName), col(params.bucketColumn))</span>
+
+    //Either apply user specified filtering, or metadata based filtering
+<span class="nc" id="L57">    val filterExpression = params.bucketFilters match {</span>
+<span class="nc bnc" id="L58" title="All 2 branches missed.">      case Some(filter) =&gt;</span>
+<span class="nc" id="L59">        col(params.bucketColumn).isin(filter:_*)</span>
+<span class="nc bnc" id="L60" title="All 2 branches missed.">      case None =&gt;</span>
+        //Obtain the available punch parts from the metadata
+<span class="nc" id="L62">        val metadataParts = metadataDF.select(split($&quot;attribute&quot;, &quot;\\.&quot;)(0).as(&quot;part&quot;))</span>
+<span class="nc" id="L63">          .select(&quot;part&quot;).distinct().collect().map(_.getString(0).toInt).toSeq</span>
+        //Filter the input records according to the punch parts found in the metadata.
+<span class="nc" id="L65">        col(params.bucketColumn).isin(metadataParts:_*)</span>
+    }
+
+<span class="nc" id="L68">    inputDF.filter(filterExpression).select(select:_*)</span>
+  }
+
+  private def processIndividualRecords(data: DataFrame,
+                             groupCols: Seq[Column],
+<span class="nc" id="L73">                             params: ESPublisherParams): Unit = {</span>
+
+    //Drop null attributes and cast ids to long
+<span class="nc" id="L76">    val selectCols = groupCols :+ col(&quot;attributes&quot;).cast(&quot;long&quot;).as(&quot;attributes&quot;)</span>
+<span class="nc" id="L77">    val nonNullAttributes = data.filter(col(&quot;attributes&quot;).isNotNull)</span>
+<span class="nc" id="L78">      .select(selectCols :+ col(params.bucketColumn):_*)</span>
+
+    //Iterate per bucket if specified
+<span class="nc" id="L81">    params.bucketFilters match {</span>
+<span class="nc bnc" id="L82" title="All 2 branches missed.">      case Some(filters) =&gt;</span>
+<span class="nc bnc" id="L83" title="All 2 branches missed.">        filters.foreach{ bucket =&gt;</span>
+<span class="nc" id="L84">          val batch = nonNullAttributes.filter(col(params.bucketColumn) === bucket)</span>
+<span class="nc" id="L85">            .select(selectCols:_*)</span>
+<span class="nc" id="L86">          performAggregation(batch, groupCols, params)</span>
+        }
+<span class="nc bnc" id="L88" title="All 2 branches missed.">      case None =&gt;</span>
+<span class="nc" id="L89">        performAggregation(nonNullAttributes.select(selectCols:_*), groupCols, params)</span>
+    }
+  }
+
+  private def performAggregation(data: DataFrame, groupCols: Seq[Column], params: ESPublisherParams): Unit = {
+<span class="nc" id="L94">    params.aggregationType match {</span>
+<span class="nc bnc" id="L95" title="All 2 branches missed.">      case Full =&gt;</span>
+<span class="nc" id="L96">        logger.info(&quot;Processing records in full aggregation mode&quot;)</span>
+<span class="nc" id="L97">        groupAndPush(data, groupCols, params)</span>
+<span class="nc bnc" id="L98" title="All 2 branches missed.">      case Sub =&gt;</span>
+<span class="nc" id="L99">        val batches = DataFrameUtils.splitDataFrameWithFraction(data, params.batchSizeFraction)</span>
+<span class="nc" id="L100">        val batchSize = (data.count() * params.batchSizeFraction).toLong</span>
+<span class="nc" id="L101">        logger.info(s&quot;Processing records in sub aggregation mode. batch size = $batchSize, total batches = ${batches.length}&quot;)</span>
+<span class="nc bnc" id="L102" title="All 4 branches missed.">        batches.zipWithIndex.foreach { case (batch, idx) =&gt;</span>
+<span class="nc" id="L103">          logger.info(s&quot;Processing batch # ${idx + 1} / ${batches.length}&quot;)</span>
+<span class="nc" id="L104">          groupAndPush(batch, groupCols, params)</span>
+        }
+    }
+  }
+
+  private def groupAndPush(batch: DataFrame,
+                           groupCols: Seq[Column],
+                           params: ESPublisherParams): Unit = {
+
+<span class="nc" id="L113">    val grouped = batch.groupBy(groupCols:_*).agg(collect_list(&quot;attributes&quot;).as(&quot;attributes&quot;))</span>
+
+    //Obtain the final RDD to send
+<span class="nc" id="L116">    val rddToSend = getRDDs(grouped, params.market, params.dataset, params.dataType)</span>
+
+    //Send to kinesis
+<span class="nc" id="L119">    val acc = spark.sparkContext.longAccumulator(&quot;Aggregated batches&quot;)</span>
+<span class="nc" id="L120">    KinesisDataWriter.writeSparkOneDF(params.region,</span>
+<span class="nc" id="L121">      params.streamName,</span>
+<span class="nc" id="L122">      rddToSend,</span>
+<span class="nc" id="L123">      acc,</span>
+<span class="nc" id="L124">      params.kPlBatchSize)</span>
+  }
+
+  override def run(args: JSONObject): Unit = {
+    //Input and required arguments
+<span class="nc" id="L129">    val input = args.getString(&quot;parquet_input_path&quot;)</span>
+<span class="nc" id="L130">    val metadata = args.getString(&quot;metadata_path&quot;)</span>
+<span class="nc" id="L131">    val mbid = args.getString(&quot;mbid&quot;)</span>
+<span class="nc" id="L132">    val attributeName = args.getString(&quot;attribute_name&quot;)</span>
+<span class="nc" id="L133">    val streamName = args.getString(&quot;stream_name&quot;)</span>
+<span class="nc" id="L134">    val bucketColumn = args.getString(&quot;bucket_column&quot;)</span>
+
+    //Optional arguments
+<span class="nc" id="L137">    val defaults = ESPublisherParams(&quot;&quot;, &quot;&quot;, &quot;&quot;, &quot;&quot;, &quot;&quot;, &quot;&quot;)</span>
+<span class="nc" id="L138">    val hhid = args.getOrElse[String](&quot;hhid&quot;, &quot;&quot;)</span>
+<span class="nc" id="L139">    val region = args.getOrElse[String](&quot;region&quot;, &quot;&quot;)</span>
+<span class="nc" id="L140">    val market = args.getOrElse[String](&quot;market&quot;, &quot;&quot;)</span>
+<span class="nc" id="L141">    val dataset = args.getOrElse[String](&quot;dataset&quot;, &quot;&quot;)</span>
+<span class="nc" id="L142">    val kplBatchSize = args.getOrElse[Int](&quot;kpl_batch_size&quot;, defaults.kPlBatchSize)</span>
+<span class="nc" id="L143">    val dropColumns = args.getOrElseSeq[String](&quot;drop_columns&quot;, Seq.empty[String])</span>
+<span class="nc" id="L144">    val bucketFiltersString = args.getOrElse[String](&quot;bucket_filters&quot;, &quot;&quot;)</span>
+<span class="nc" id="L145">    val aggregationTypeStr = args.getOrElse[String](&quot;aggregation_type&quot;, &quot;FULL&quot;)</span>
+<span class="nc" id="L146">    val batchSize = args.getOrElse[String](&quot;batch_size&quot;, defaults.batchSizeFraction.toString).toDouble</span>
+
+<span class="nc bnc" id="L148" title="All 2 branches missed.">    val bucketFilters = if (bucketFiltersString.contains(&quot;-&quot;)) {</span>
+<span class="nc" id="L149">      val range = bucketFiltersString.split(&quot;-&quot;)</span>
+<span class="nc" id="L150">      (range(0).toInt to range(1).toInt).toArray</span>
+    } else {
+<span class="nc" id="L152">      bucketFiltersString.split(&quot;,&quot;).map(_.trim.toInt)</span>
+    }
+
+<span class="nc" id="L155">    val params = ESPublisherParams(input,</span>
+<span class="nc" id="L156">      metadata,</span>
+<span class="nc" id="L157">      mbid,</span>
+<span class="nc" id="L158">      attributeName,</span>
+<span class="nc" id="L159">      streamName,</span>
+<span class="nc" id="L160">      bucketColumn)</span>
+<span class="nc" id="L161">      .withHouseHoldId(hhid)</span>
+<span class="nc" id="L162">      .withRegion(region)</span>
+<span class="nc" id="L163">      .withMarket(market)</span>
+<span class="nc" id="L164">      .withDataset(dataset)</span>
+<span class="nc" id="L165">      .withKplBatchSize(kplBatchSize.toInt)</span>
+<span class="nc" id="L166">      .withDropColumns(dropColumns)</span>
+<span class="nc" id="L167">      .withBucketFilters(bucketFilters)</span>
+<span class="nc" id="L168">      .withAggregationType(AggregationType.fromName(aggregationTypeStr))</span>
+<span class="nc" id="L169">      .withBatchSizeFraction(batchSize)</span>
+
+<span class="nc" id="L171">    processAttributes(params)</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

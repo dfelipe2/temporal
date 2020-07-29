@@ -1,0 +1,260 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ComscoreValidation.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.qa.denormalizer</a> &gt; <span class="el_source">ComscoreValidation.scala</span></div><h1>ComscoreValidation.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.qa.denormalizer
+
+import com.mbww.cia.common.{Module, _}
+import com.mbww.cia.common.Spark._
+import com.mbww.cia.qa.utils.{UtilsFunction, ValidationUtils}
+import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.functions.{col, date_format, to_timestamp}
+import org.json.JSONObject
+import org.slf4j.LoggerFactory
+
+import scala.collection.parallel.ForkJoinTaskSupport
+import scala.concurrent.forkjoin
+<span class="fc" id="L13">class ComscoreValidation extends Module{</span>
+<span class="fc" id="L14">  val log = LoggerFactory.getLogger(&quot;CIA Pipeline&quot;)</span>
+
+  override def run(args: JSONObject): Unit = {
+
+<span class="fc" id="L18">    val comscore_whitelist_parquet_inputpath = args.getString(&quot;comscore_whitelist_parquet_inputpath&quot;)</span>
+<span class="fc" id="L19">    val comscore_factdaily_parquet_inputpath = args.getString(&quot;comscore_factdaily_parquet_inputpath&quot;)</span>
+<span class="fc" id="L20">    val comscore_historic_monthly_agg_inputpath = args.getString(&quot;comscore_historic_monthly_agg_inputpath&quot;)</span>
+<span class="fc" id="L21">    val aggregation_level = args.getString(&quot;aggregation_level&quot;)</span>
+<span class="fc" id="L22">    val comscore_dailyibid_outputpath = args.getString(&quot;comscore_dailyibid_outputpath&quot;)</span>
+<span class="fc" id="L23">    val comscore_monthlyibid_outputpath = args.getString(&quot;comscore_monthlyibid_outputpath&quot;)</span>
+<span class="fc" id="L24">    val comscore_hist_with_curr_monthly_agg_outpath = args.getString(&quot;comscore_hist_with_curr_monthly_agg_outpath&quot;)</span>
+<span class="fc" id="L25">    val comscore_Year=args.getString(&quot;year&quot;)</span>
+<span class="fc" id="L26">    val comscore_Month=args.getString(&quot;month&quot;)</span>
+<span class="fc" id="L27">    val xwalk_inputpath = args.getString(&quot;xwalk_inputpath&quot;)</span>
+<span class="fc" id="L28">    val reduced_xwalk_outputpath = args.getString(&quot;reduced_xwalk_outputpath&quot;)</span>
+<span class="fc" id="L29">    val xwalk_input_columns = args.getSeq[String](&quot;xwalk_input_columns&quot;)</span>
+<span class="fc" id="L30">    val thread_count = args.getOrElse[Int](&quot;thread_count&quot;, 1)</span>
+<span class="fc" id="L31">    val market_name=args.getString(&quot;market_name&quot;)</span>
+
+<span class="fc" id="L33">    validation(</span>
+<span class="fc" id="L34">      comscore_whitelist_parquet_inputpath,</span>
+<span class="fc" id="L35">      comscore_factdaily_parquet_inputpath,</span>
+<span class="fc" id="L36">      aggregation_level,</span>
+<span class="fc" id="L37">      comscore_dailyibid_outputpath,</span>
+<span class="fc" id="L38">      comscore_monthlyibid_outputpath,</span>
+<span class="fc" id="L39">      comscore_historic_monthly_agg_inputpath,</span>
+<span class="fc" id="L40">      comscore_hist_with_curr_monthly_agg_outpath,</span>
+<span class="fc" id="L41">      comscore_Year,</span>
+<span class="fc" id="L42">      comscore_Month,</span>
+<span class="fc" id="L43">      xwalk_inputpath,</span>
+<span class="fc" id="L44">      xwalk_input_columns,</span>
+<span class="fc" id="L45">      reduced_xwalk_outputpath,</span>
+<span class="fc" id="L46">      market_name,</span>
+<span class="fc" id="L47">      thread_count</span>
+    )
+  }
+
+  def validation(comscore_whitelist_parquet_inputpath: String,
+                 comscore_factdaily_parquet_inputpath: String,
+                 aggregation_level: String,
+                 comscore_dailyibid_outputpath: String,
+                 comscore_monthlyibid_outputpath: String,
+                 comscore_historic_monthly_agg_inputpath: String,
+                 comscore_hist_with_curr_monthly_agg_outpath: String,
+                 comscore_Year: String,
+                 comscore_Month:String,
+                 xwalk_inputpath:String,
+                 xwalk_input_columns: Seq[String],
+                 reduced_xwalk_outputpath: String,
+                 market_name:String,
+<span class="nc" id="L64">                 thread_count:Int = 1</span>
+<span class="fc" id="L65">                ): Unit = {</span>
+
+<span class="pc bpc" id="L67" title="3 of 6 branches missed.">    if (xwalk_inputpath != &quot;&quot;) {</span>
+<span class="fc" id="L68">      val xwalk_df = spark.read.parquet(xwalk_inputpath).select(xwalk_input_columns.map(c =&gt; col(c)): _*)</span>
+<span class="fc" id="L69">      var xwalk_newColumnNames: Seq[String]=null</span>
+<span class="pc bpc" id="L70" title="1 of 2 branches missed.">      if(market_name.equals(&quot;UK&quot;))</span>
+      {
+<span class="nc" id="L72">        xwalk_newColumnNames = Seq(&quot;mbid_v2&quot;,&quot;comscore_person_id&quot;)</span>
+      }
+      else
+<span class="fc" id="L75">        xwalk_newColumnNames = Seq(&quot;consumer_pel&quot;,&quot;comscore_person_id&quot;)</span>
+
+<span class="fc" id="L77">      val main_xwalk_df = xwalk_df.toDF(xwalk_newColumnNames: _*)</span>
+<span class="fc" id="L78">      main_xwalk_df.createOrReplaceTempView(&quot;main_xwalk_view&quot;)</span>
+<span class="fc" id="L79">      val main_xwalk_distinct_df=main_xwalk_df.distinct()</span>
+<span class="fc" id="L80">      val actualReducedCrosswalk=spark.read.parquet(reduced_xwalk_outputpath)</span>
+<span class="fc" id="L81">      ValidationUtils.validateCount(main_xwalk_distinct_df, actualReducedCrosswalk)</span>
+<span class="fc" id="L82">      ValidationUtils.validateSchema(main_xwalk_distinct_df.schema,actualReducedCrosswalk.schema)</span>
+<span class="fc" id="L83">      ValidationUtils.validateColumnsCount(main_xwalk_distinct_df, actualReducedCrosswalk)</span>
+
+<span class="fc" id="L85">      val distinct_actualReducedCrosswalk=actualReducedCrosswalk.distinct()</span>
+<span class="fc" id="L86">      ValidationUtils.validateCount(distinct_actualReducedCrosswalk, actualReducedCrosswalk)</span>
+<span class="fc" id="L87">      log.info(s&quot;distinct count of actual reducedCrosswalk is equal to count of actual  reducedCrosswalk&quot;)</span>
+
+<span class="fc" id="L89">      var actualConsumerPel:DataFrame=null</span>
+<span class="fc" id="L90">      var expectedConsumerPel:DataFrame=null</span>
+<span class="pc bpc" id="L91" title="1 of 2 branches missed.">      if(market_name.equals(&quot;UK&quot;))</span>
+      {
+<span class="nc" id="L93">        val actualConsumerPel=actualReducedCrosswalk.select(&quot;mbid_v2&quot;)</span>
+<span class="nc" id="L94">        expectedConsumerPel=main_xwalk_distinct_df.select(&quot;mbid_v2&quot;)</span>
+      }
+      else
+      {
+<span class="fc" id="L98">        actualConsumerPel=actualReducedCrosswalk.select(&quot;consumer_pel&quot;)</span>
+<span class="fc" id="L99">        expectedConsumerPel=main_xwalk_distinct_df.select(&quot;consumer_pel&quot;)</span>
+
+      }
+<span class="fc" id="L102">      val actualComscorePersonId=actualReducedCrosswalk.select(&quot;comscore_person_id&quot;)</span>
+<span class="fc" id="L103">      val exepectedComscorePersonId=main_xwalk_distinct_df.select(&quot;comscore_person_id&quot;)</span>
+<span class="fc" id="L104">      val diffExpectedAndActualConsumerPel=expectedConsumerPel.except(actualConsumerPel)</span>
+<span class="fc" id="L105">      val expectedCount=diffExpectedAndActualConsumerPel.count</span>
+<span class="fc" id="L106">      val diffActualAndExpectedConsumerPel=actualConsumerPel.except(expectedConsumerPel)</span>
+<span class="fc" id="L107">      val actualCount=diffActualAndExpectedConsumerPel.count()</span>
+<span class="pc bpc" id="L108" title="1 of 2 branches missed.">      if(!(actualCount==expectedCount))</span>
+      {
+<span class="nc" id="L110">        throw new RuntimeException(</span>
+<span class="nc" id="L111">          s&quot;Differenece of actual consumer_Pel with  expected consumer_Pel  count ${actualCount}  is not equal with difference of expected consumer_Pel with actual consumer_Pel count ${expectedCount}&quot;)</span>
+
+      }
+<span class="fc" id="L114">      log.info(s&quot;Differenece of actual consumer_Pel with  expected consumer_Pel  count  is  equal with difference of expected consumer_Pel with actual consumer_Pel count&quot;)</span>
+<span class="fc" id="L115">      val diffExpectedAndActualcomscorepersonId=exepectedComscorePersonId.except(actualComscorePersonId)</span>
+<span class="fc" id="L116">      val expectedCountofId=diffExpectedAndActualcomscorepersonId.count</span>
+<span class="fc" id="L117">      val diffActualAndExpectedcomscorepersonId=actualComscorePersonId.except(exepectedComscorePersonId)</span>
+<span class="fc" id="L118">      val actualCountOfId=diffActualAndExpectedcomscorepersonId.count()</span>
+
+<span class="pc bpc" id="L120" title="1 of 2 branches missed.">      if(!(actualCountOfId==expectedCountofId))</span>
+      {
+<span class="nc" id="L122">        throw new RuntimeException(</span>
+<span class="nc" id="L123">          s&quot;Differenece of actual comscore_person_id with  expected comscore_person_id  count ${actualCountOfId}  is not equal with difference of expected comscore_person_id with actual comscore_person_id count ${expectedCountofId}&quot;)</span>
+
+      }
+<span class="fc" id="L126">      log.info(s&quot;Differenece of actual comscore_person_id with  expected comscore_person_id  count  is  equal with difference of expected comscore_person_id with actual comscore_person_id count&quot;)</span>
+
+<span class="fc" id="L128">      val consumerPelCount=actualConsumerPel.count</span>
+<span class="fc" id="L129">      val comscorePersonIdCount=actualComscorePersonId.count</span>
+<span class="fc" id="L130">      val  reducedCroswalkCount=actualReducedCrosswalk.count</span>
+<span class="pc bpc" id="L131" title="3 of 4 branches missed.">      if(!(consumerPelCount==reducedCroswalkCount) &amp;&amp; !(comscorePersonIdCount==reducedCroswalkCount))</span>
+      {
+<span class="nc" id="L133">        throw new RuntimeException(s&quot;consumerPel column count and comscore PersonId column Count did not matched with  reducedCroswalkCount&quot;</span>
+        )
+      }
+<span class="fc" id="L136">      log.info(s&quot;consumerPel column count and comscore PersonId column Count matched with  reducedCroswalkCount&quot;)</span>
+
+    }
+
+<span class="pc bpc" id="L140" title="3 of 6 branches missed.">    if (aggregation_level == &quot;Daily&quot;) {</span>
+<span class="fc" id="L141">      validationAggregatedDaily(</span>
+<span class="fc" id="L142">        comscore_whitelist_parquet_inputpath,</span>
+<span class="fc" id="L143">        comscore_factdaily_parquet_inputpath,</span>
+<span class="fc" id="L144">        comscore_dailyibid_outputpath,</span>
+<span class="fc" id="L145">        comscore_Year,</span>
+<span class="fc" id="L146">        comscore_Month,</span>
+<span class="fc" id="L147">        thread_count</span>
+      )
+    }
+
+<span class="pc bpc" id="L151" title="3 of 6 branches missed.">    else if (aggregation_level == &quot;Monthly&quot;) {</span>
+<span class="fc" id="L152">      validationAggregatedMonthly(</span>
+<span class="fc" id="L153">        comscore_dailyibid_outputpath,</span>
+<span class="fc" id="L154">        comscore_monthlyibid_outputpath,</span>
+<span class="fc" id="L155">        comscore_historic_monthly_agg_inputpath,</span>
+<span class="fc" id="L156">        comscore_hist_with_curr_monthly_agg_outpath</span>
+      )
+    }
+
+<span class="pc bpc" id="L160" title="4 of 6 branches missed.">    else if (aggregation_level == &quot;Daily_And_Monthly&quot;) {</span>
+<span class="fc" id="L161">      validationAggregatedDailyAndMonthly(</span>
+<span class="fc" id="L162">        comscore_whitelist_parquet_inputpath,</span>
+<span class="fc" id="L163">        comscore_factdaily_parquet_inputpath,</span>
+<span class="fc" id="L164">        comscore_dailyibid_outputpath,</span>
+<span class="fc" id="L165">        comscore_monthlyibid_outputpath,</span>
+<span class="fc" id="L166">        comscore_historic_monthly_agg_inputpath,</span>
+<span class="fc" id="L167">        comscore_hist_with_curr_monthly_agg_outpath,</span>
+<span class="fc" id="L168">        comscore_Year,</span>
+<span class="fc" id="L169">        comscore_Month,</span>
+<span class="fc" id="L170">        thread_count)</span>
+    }
+
+  }
+
+  def validationAggregatedDailyAndMonthly(comscore_whitelist_parquet_inputpath: String,
+                                          comscore_factdaily_parquet_inputpath: String,
+                                          comscore_dailyibid_outputpath: String,
+                                          comscore_monthlyibid_outputpath: String,
+                                          comscore_historic_monthly_agg_inputpath: String,
+                                          comscore_hist_with_curr_monthly_agg_outpath: String,
+                                          comscore_Year: String,
+                                          comscore_Month: String,
+<span class="nc" id="L183">                                          thread_count:Int = 1): Unit = {</span>
+
+<span class="fc" id="L185">    validationAggregatedDaily(</span>
+<span class="fc" id="L186">      comscore_whitelist_parquet_inputpath,</span>
+<span class="fc" id="L187">      comscore_factdaily_parquet_inputpath,</span>
+<span class="fc" id="L188">      comscore_dailyibid_outputpath,</span>
+<span class="fc" id="L189">      comscore_Year,</span>
+<span class="fc" id="L190">      comscore_Month,</span>
+<span class="fc" id="L191">      thread_count</span>
+    )
+
+<span class="fc" id="L194">    validationAggregatedMonthly(</span>
+<span class="fc" id="L195">      comscore_dailyibid_outputpath,</span>
+<span class="fc" id="L196">      comscore_monthlyibid_outputpath,</span>
+<span class="fc" id="L197">      comscore_historic_monthly_agg_inputpath,</span>
+<span class="fc" id="L198">      comscore_hist_with_curr_monthly_agg_outpath)</span>
+
+  }
+
+  def validationAggregatedDaily(comscore_whitelist_parquet_inputpath: String,
+                                comscore_factdaily_parquet_inputpath: String,
+                                comscore_dailyibid_outputpath: String,
+                                year:String,
+                                month:String,
+<span class="nc" id="L207">                                thread_count:Int = 1): Unit = {</span>
+<span class="fc" id="L208">    val maxDay = UtilsFunction.getDaysInMonth(year, month)</span>
+<span class="fc" id="L209">    var range = 1 to maxDay</span>
+<span class="fc" id="L210">    val domainWhiteList_df = spark.read.parquet(comscore_whitelist_parquet_inputpath).select(&quot;domain_name&quot;)</span>
+<span class="fc" id="L211">    sc.broadcast(domainWhiteList_df)</span>
+<span class="fc" id="L212">    val agg_url_traffic_domain_hour=spark.read.parquet(comscore_factdaily_parquet_inputpath).drop(&quot;comscore_machine_id&quot;, &quot;url_refer_domain&quot;, &quot;action_hour&quot;, &quot;action_month_id&quot;, &quot;traffic_count&quot;)</span>
+<span class="fc" id="L213">    val fact_per_day_df = agg_url_traffic_domain_hour.withColumn(&quot;day&quot;, date_format(to_timestamp(col(&quot;action_date&quot;), &quot;yyyy-MM-dd HH:mm:ss&quot;), &quot;dd&quot;))</span>
+
+<span class="pc bpc" id="L215" title="1 of 2 branches missed.">    range.par.foreach(day =&gt; {</span>
+<span class="fc bfc" id="L216" title="All 2 branches covered.">      val newDay = (if (day &lt; 10) &quot;0&quot; + day else &quot;&quot; + day);</span>
+<span class="fc" id="L217">      val df_factdaily =fact_per_day_df.filter(s&quot;day=${newDay}&quot;)</span>
+<span class="fc" id="L218">      log.info(s&quot;processing for the day ${newDay}&quot;)</span>
+<span class="fc" id="L219">      df_factdaily.cache()</span>
+<span class="fc" id="L220">      val joined_df = domainWhiteList_df.join(df_factdaily, domainWhiteList_df(&quot;domain_name&quot;) === df_factdaily(&quot;domain_name&quot;), &quot;inner&quot;).drop(df_factdaily(&quot;domain_name&quot;))</span>
+<span class="fc" id="L221">      joined_df.cache()</span>
+<span class="fc" id="L222">      var pValues = domainWhiteList_df.collect().par</span>
+<span class="fc" id="L223">      pValues.tasksupport = new ForkJoinTaskSupport(new forkjoin.ForkJoinPool(8))</span>
+<span class="pc bpc" id="L224" title="1 of 2 branches missed.">      pValues.foreach { x =&gt;</span>
+<span class="fc" id="L225">        validate(x(0).toString, df_factdaily, comscore_dailyibid_outputpath, newDay, joined_df)</span>
+      }
+    })
+  }
+
+  def validate(x: String,factDataframe:DataFrame,comscore_dailyibid_outputpath:String,day:String,joined_df:DataFrame): Unit = {
+<span class="pc" id="L231">    try {</span>
+<span class="fc" id="L232">      var factDatacount = factDataframe.select(&quot;comscore_person_id&quot;).where(factDataframe.col(&quot;domain_name&quot;).equalTo(x)).distinct.count;</span>
+      // var expectedCount = spark.read.load(comscore_dailyibid_outputpath + s&quot;day=${day}/domain_name=${x}/&quot;).count
+      //if(!(factDatacount ==expectedCount)) {
+      //println(
+      // s&quot;Actual file count ${factDatacount} is not same as Expected count ${expectedCount} proscess data for the domain ${x}&quot;)
+    }
+      // log.info(   s&quot;Actual file count ${factDatacount} is  same as Expected count ${expectedCount} proscess data for the domain ${x}&quot;)
+      //}
+    catch {
+      case e: Exception =&gt; e.printStackTrace
+      //var expectedCount = joined_df.select(&quot;comscore_person_id&quot;).where(joined_df.col(&quot;domain_name&quot;).equalTo(x)).count
+      // if (!(expectedCount == 0)) {
+      //  throw new RuntimeException(
+      //  s&quot; Expected count ${expectedCount} proscess data for the domain ${x}&quot;)
+    }
+  }
+
+
+  def validationAggregatedMonthly(comscore_dailyibid_outputpath: String,
+                                  comscore_monthlyibid_outputpath: String,
+                                  comscore_historic_monthly_agg_inputpath: String,
+                                  comscore_hist_with_curr_monthly_agg_outpath: String): Unit = {
+<span class="fc" id="L254">    val monthly_ibid_df = spark.read.parquet(comscore_dailyibid_outputpath).groupBy(&quot;comscore_person_id&quot;,&quot;domain_name&quot;).count</span>
+<span class="fc" id="L255">    val monthly_df = spark.read.parquet(comscore_monthlyibid_outputpath)</span>
+<span class="fc" id="L256">    ValidationUtils.validateCount(monthly_ibid_df, monthly_df)</span>
+  }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

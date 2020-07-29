@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>BitmapBinaryRecordReader.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.common.bitmap</a> &gt; <span class="el_source">BitmapBinaryRecordReader.scala</span></div><h1>BitmapBinaryRecordReader.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.common.bitmap
+
+import java.io.{ByteArrayOutputStream, Closeable, DataOutputStream}
+import java.net.URI
+
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.{FSDataInputStream, Path}
+import org.apache.hadoop.io.{BytesWritable, LongWritable}
+import org.apache.hadoop.mapreduce._
+import org.apache.hadoop.mapreduce.lib.input.FileSplit
+import org.apache.hadoop.mapreduce.task.TaskAttemptContextImpl
+import org.apache.spark.sql.execution.datasources.{PartitionedFile, RecordReaderIterator}
+import org.roaringbitmap.RoaringBitmap
+import org.slf4j.LoggerFactory
+
+/**
+  * Hadoop record reader for roaring bitmaps.
+  */
+<span class="fc" id="L19">class BitmapBinaryRecordReader extends RecordReader[LongWritable, BytesWritable] with Serializable {</span>
+
+<span class="pc bpc" id="L21" title="2 of 4 branches missed.">  @transient private lazy val key: LongWritable = new LongWritable()</span>
+<span class="pc bpc" id="L22" title="1 of 4 branches missed.">  @transient private lazy val value: BytesWritable = new BytesWritable()</span>
+<span class="pc" id="L23">  @transient val Logger = LoggerFactory.getLogger(classOf[BitmapBinaryRecordReader])</span>
+<span class="fc" id="L24">  @transient private var inputStream: FSDataInputStream = _</span>
+<span class="fc" id="L25">  private var pos: Long = 0</span>
+<span class="fc" id="L26">  private var start: Long = 0</span>
+<span class="fc" id="L27">  private var end: Long = 0</span>
+
+<span class="nc" id="L29">  override def getCurrentKey: LongWritable = this.key</span>
+
+<span class="nc bnc" id="L31" title="All 2 branches missed.">  override def getProgress: Float = if (this.start == this.end) 0.0f else</span>
+<span class="nc" id="L32">    Math.min(1.0f, (pos - start) / (end - start).toFloat)</span>
+
+  override def nextKeyValue(): Boolean = {
+<span class="fc bfc" id="L35" title="All 2 branches covered.">    if (this.pos &lt; this.end) {</span>
+<span class="fc" id="L36">      this.inputStream.seek(this.pos)</span>
+<span class="fc" id="L37">      val bitmap = new RoaringBitmap()</span>
+<span class="fc" id="L38">      bitmap.deserialize(this.inputStream)</span>
+
+<span class="fc" id="L40">      val bos = new ByteArrayOutputStream()</span>
+<span class="fc" id="L41">      val dos = new DataOutputStream(bos)</span>
+<span class="fc" id="L42">      bitmap.serialize(dos)</span>
+
+<span class="fc" id="L44">      val serializedSize = bitmap.serializedSizeInBytes()</span>
+
+<span class="fc" id="L46">      this.key.set(this.pos)</span>
+<span class="fc" id="L47">      this.value.set(bos.toByteArray, 0, serializedSize)</span>
+
+<span class="fc" id="L49">      this.pos = this.pos + serializedSize</span>
+<span class="fc" id="L50">      true</span>
+<span class="fc" id="L51">    } else false</span>
+  }
+
+<span class="fc" id="L54">  override def getCurrentValue: BytesWritable = this.value</span>
+
+  override def close(): Unit = {
+<span class="fc" id="L57">    Option(this.inputStream).foreach(_.close())</span>
+  }
+
+  override def initialize(split: InputSplit, context: TaskAttemptContext): Unit = {
+<span class="fc" id="L61">    val fileSplit = split.asInstanceOf[FileSplit]</span>
+<span class="fc" id="L62">    val config = context.getConfiguration</span>
+
+<span class="fc" id="L64">    this.start = fileSplit.getStart</span>
+<span class="fc" id="L65">    this.end = this.start + fileSplit.getLength</span>
+<span class="fc" id="L66">    this.pos = this.start</span>
+
+<span class="fc" id="L68">    val file = fileSplit.getPath</span>
+<span class="fc" id="L69">    val fs = file.getFileSystem(config)</span>
+<span class="fc" id="L70">    this.inputStream = fs.open(file)</span>
+  }
+}
+
+/**
+  * Interface between hadoop record reader and spark file format.
+  * @param file A partitioned file (i.e. block of a file).
+  * @param conf A hadoop configuarion object.
+  */
+<span class="pc" id="L79">class BitmapBinaryFileReader(file: PartitionedFile, conf: Configuration) extends Iterator[BytesWritable] with Closeable with Serializable {</span>
+
+<span class="fc" id="L81">  private val iterator = {</span>
+<span class="fc" id="L82">    val fileSplit = new FileSplit(</span>
+<span class="fc" id="L83">      new Path(new URI(file.filePath)),</span>
+<span class="fc" id="L84">      file.start,</span>
+<span class="fc" id="L85">      file.length,</span>
+<span class="fc" id="L86">      Array.empty)</span>
+<span class="fc" id="L87">    val attemptId = new TaskAttemptID(new TaskID(new JobID(), TaskType.MAP, 0), 0)</span>
+<span class="fc" id="L88">    val hadoopAttemptContext = new TaskAttemptContextImpl(conf, attemptId)</span>
+<span class="fc" id="L89">    val reader = new BitmapBinaryRecordReader()</span>
+<span class="fc" id="L90">    reader.initialize(fileSplit, hadoopAttemptContext)</span>
+<span class="fc" id="L91">    new RecordReaderIterator(reader)</span>
+  }
+
+<span class="fc" id="L94">  override def hasNext: Boolean = iterator.hasNext</span>
+
+<span class="fc" id="L96">  override def next(): BytesWritable = iterator.next()</span>
+
+<span class="fc" id="L98">  override def close(): Unit = iterator.close()</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

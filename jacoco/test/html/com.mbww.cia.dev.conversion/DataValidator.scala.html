@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DataValidator.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.conversion</a> &gt; <span class="el_source">DataValidator.scala</span></div><h1>DataValidator.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.conversion
+
+import com.mbww.cia.common.Spark._
+import com.mbww.cia.common.utility.Tools
+import com.mbww.cia.common.utility.Tools._
+import com.mbww.cia.common.{Constants, Module, _}
+import org.apache.spark.sql.SaveMode
+import org.apache.spark.sql.types._
+import org.json._
+
+import scala.collection._
+import scala.collection.mutable.Map
+
+<span class="fc" id="L14">class DataValidator extends Module {</span>
+
+<span class="pc bpc" id="L16" title="29 of 30 branches missed.">  case class FormatOptions(csvOptions: Map[String, String])</span>
+
+  def convert(inputPath: String,
+              inputParquetPath: String,
+              inputColumns: Seq[String],
+              formatOptions: FormatOptions,
+              samples: String,
+              validations: String,
+              validationsOutputPath: String,
+              validationsConfigPath: String,
+<span class="fc" id="L26">              logOutputPath: String): Unit = {</span>
+
+<span class="fc bfc" id="L28" title="All 2 branches covered.">    val targetSchema = if (!inputPath.isEmpty) {</span>
+<span class="pc bpc" id="L29" title="1 of 2 branches missed.">      if (inputColumns.mkString(&quot;,&quot;).contains(&quot;:&quot;)) {</span>
+<span class="nc" id="L30">        val columnMapping = inputColumns.mkString(&quot;,&quot;)</span>
+<span class="nc" id="L31">        Tools.getStructType(columnMapping, &quot;,&quot;)</span>
+      } else {
+<span class="fc" id="L33">        StructType(inputColumns.map(c =&gt; StructField(c, StringType, true)).toArray)</span>
+      }
+    } else {
+<span class="fc" id="L36">      Tools.getStructType(&quot;&quot;, &quot;,&quot;)</span>
+    }
+
+<span class="fc bfc" id="L39" title="All 2 branches covered.">    val readDataFrame = if (inputPath.isEmpty) {</span>
+<span class="fc" id="L40">      spark.read.parquet(inputParquetPath)</span>
+    }
+    else {
+<span class="fc" id="L43">      spark</span>
+<span class="fc" id="L44">        .read</span>
+<span class="fc" id="L45">        .option(&quot;mode&quot;, &quot;FAILFAST&quot;)</span>
+<span class="fc" id="L46">        .options(formatOptions.csvOptions)</span>
+<span class="fc" id="L47">        .schema(targetSchema)</span>
+<span class="fc" id="L48">        .format(Constants.CSV_FORMAT_SPEC)</span>
+<span class="fc" id="L49">        .load(inputPath)</span>
+    }
+<span class="fc bfc" id="L51" title="All 2 branches covered.">    val selectDataframe = if (samples.isEmpty) {</span>
+<span class="fc" id="L52">      readDataFrame</span>
+    } else {
+<span class="fc" id="L54">      readDataFrame.limit(samples.toInt)</span>
+    }
+
+<span class="fc" id="L57">    val suggestedValidationReport = suggestValidateInputData(selectDataframe)</span>
+<span class="fc" id="L58">    suggestedValidationReport.coalesce(1)</span>
+<span class="fc" id="L59">      .write.format(Constants.CSV_FORMAT_SPEC)</span>
+<span class="fc" id="L60">      .option(&quot;header&quot;, &quot;true&quot;)</span>
+<span class="fc" id="L61">      .option(&quot;delimiter&quot;, &quot;\t&quot;)</span>
+<span class="fc" id="L62">      .mode(SaveMode.Overwrite)</span>
+<span class="fc" id="L63">      .save(logOutputPath)</span>
+
+<span class="fc bfc" id="L65" title="All 2 branches covered.">    if (validations.isEmpty) {</span>
+<span class="fc" id="L66">      val prevalidationReportDefault = validateDefaultRawInputData(selectDataframe, validationsConfigPath)</span>
+<span class="fc" id="L67">      prevalidationReportDefault.coalesce(1)</span>
+<span class="fc" id="L68">        .write.format(Constants.CSV_FORMAT_SPEC)</span>
+<span class="fc" id="L69">        .option(&quot;header&quot;, &quot;true&quot;)</span>
+<span class="fc" id="L70">        .option(&quot;delimiter&quot;, &quot;\t&quot;)</span>
+<span class="fc" id="L71">        .mode(SaveMode.Overwrite)</span>
+<span class="fc" id="L72">        .save(validationsOutputPath)</span>
+    }
+    else {
+<span class="fc" id="L75">      val prevalidationReport = validateRawInputData(selectDataframe, validations, validationsConfigPath)</span>
+<span class="fc" id="L76">      prevalidationReport.coalesce(1)</span>
+<span class="fc" id="L77">        .write.format(Constants.CSV_FORMAT_SPEC)</span>
+<span class="fc" id="L78">        .option(&quot;header&quot;, &quot;true&quot;)</span>
+<span class="fc" id="L79">        .option(&quot;delimiter&quot;, &quot;\t&quot;)</span>
+<span class="fc" id="L80">        .mode(SaveMode.Overwrite)</span>
+<span class="fc" id="L81">        .save(validationsOutputPath)</span>
+    }
+  }
+
+  override def run(args: JSONObject): Unit = {
+
+<span class="fc" id="L87">    val inputPath = args.getOrElse[String](&quot;raw_input_path&quot;, &quot;&quot;)</span>
+<span class="fc" id="L88">    val inputParquetPath = args.getOrElse[String](&quot;parquet_input_path&quot;, &quot;&quot;)</span>
+<span class="fc" id="L89">    val inputColumns = args.getOrElseSeq[String](&quot;columns&quot;)</span>
+<span class="fc" id="L90">    val csvOptionsArray = args.getOrElseSeq[JSONArray](&quot;csv_options&quot;)</span>
+<span class="fc" id="L91">      .map(a =&gt; (a.getString(0), a.getString(1)))</span>
+<span class="fc" id="L92">    val csvOptions = csvOptionsArray.foldLeft(Map.empty[String, String])((map, obj) =&gt; map += obj)</span>
+<span class="fc" id="L93">    val samples = args.getOrElse[String](&quot;samples&quot;, &quot;&quot;)</span>
+<span class="fc" id="L94">    val validations = args.getOrElse[String]((&quot;validations&quot;), &quot;&quot;)</span>
+<span class="fc" id="L95">    val validationsOutputPath = args.getOrElse[String](&quot;validations_output_path&quot;, &quot;&quot;)</span>
+<span class="fc" id="L96">    val logOutputPath = args.getOrElse[String](&quot;log_output_path&quot;, &quot;&quot;)</span>
+<span class="fc" id="L97">    val validationsConfigPath = args.getOrElse[String](&quot;validations_config_path&quot;, &quot;&quot;)</span>
+
+<span class="fc" id="L99">    val formatOptions = FormatOptions(csvOptions)</span>
+
+<span class="fc" id="L101">    convert(</span>
+<span class="fc" id="L102">      inputPath,</span>
+<span class="fc" id="L103">      inputParquetPath,</span>
+<span class="fc" id="L104">      inputColumns,</span>
+<span class="fc" id="L105">      formatOptions,</span>
+<span class="fc" id="L106">      samples,</span>
+<span class="fc" id="L107">      validations,</span>
+<span class="fc" id="L108">      validationsOutputPath,</span>
+<span class="fc" id="L109">      validationsConfigPath,</span>
+<span class="fc" id="L110">      logOutputPath)</span>
+
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

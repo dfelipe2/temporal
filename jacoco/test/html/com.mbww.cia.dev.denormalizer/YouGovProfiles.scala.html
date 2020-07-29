@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>YouGovProfiles.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.denormalizer</a> &gt; <span class="el_source">YouGovProfiles.scala</span></div><h1>YouGovProfiles.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.denormalizer
+
+import com.mbww.cia.common.{Module, _}
+import com.mbww.cia.common.Spark._
+import com.mbww.cia.common.utility.Tools.YouGovProfilesETL
+import org.apache.spark.sql.{Column, DataFrame, Row, SaveMode}
+import org.apache.spark.sql.functions._
+import org.json.JSONObject
+import scala.collection.Seq
+
+<span class="fc" id="L11">class YouGovProfiles extends Module {</span>
+
+<span class="pc bpc" id="L13" title="50 of 51 branches missed.">  case class InputPaths(longPath: String,</span>
+<span class="pc" id="L14">                        codesPath: String,</span>
+<span class="pc" id="L15">                        definitionsPath: String,</span>
+<span class="pc" id="L16">                        subvariablesPath: String</span>
+                       )
+
+  def generate(inputPaths: InputPaths,
+               datesToBeUsed: Seq[String],
+               outputPath: String,
+               dictionaryOutputpath:String,
+<span class="nc" id="L23">               threadCount: Int = 1): Unit = {</span>
+
+<span class="fc" id="L25">    val long = spark.read.parquet(inputPaths.longPath).filter(col(&quot;date&quot;).isin(datesToBeUsed:_*))</span>
+<span class="fc" id="L26">    val codes = spark.read.parquet(inputPaths.codesPath).filter(col(&quot;date&quot;).isin(datesToBeUsed:_*))</span>
+<span class="fc" id="L27">    val parentDefinitions = spark.read.parquet(inputPaths.definitionsPath).filter(col(&quot;date&quot;).isin(datesToBeUsed:_*))</span>
+<span class="fc" id="L28">    val childDefinitions = spark.read.parquet(inputPaths.definitionsPath).filter(col(&quot;date&quot;).isin(datesToBeUsed:_*))</span>
+<span class="fc" id="L29">    val subvariables = spark.read.parquet(inputPaths.subvariablesPath).filter(col(&quot;date&quot;).isin(datesToBeUsed:_*))</span>
+
+
+<span class="fc" id="L32">    denormalize(long, codes, subvariables, parentDefinitions, childDefinitions)</span>
+<span class="fc" id="L33">      .write</span>
+<span class="fc" id="L34">      .mode(SaveMode.Overwrite)</span>
+<span class="fc" id="L35">      .option(&quot;mapreduce.fileoutputcommitter.algorithm.version&quot;, &quot;2&quot;)</span>
+<span class="fc" id="L36">      .parquet(outputPath)</span>
+
+<span class="fc" id="L38">    dictionaty(getAttributes(spark.read.load(outputPath), Seq[String](&quot;answered_question_id&quot;, &quot;answer_id&quot;)))</span>
+<span class="fc" id="L39">      .write</span>
+<span class="fc" id="L40">      .mode(SaveMode.Overwrite)</span>
+<span class="fc" id="L41">      .option(&quot;mapreduce.fileoutputcommitter.algorithm.version&quot;, &quot;2&quot;)</span>
+<span class="fc" id="L42">      .parquet(dictionaryOutputpath)</span>
+
+
+  }
+
+  def dictionaty(denormalized: DataFrame): DataFrame = {
+
+<span class="fc" id="L49">    val getDisplayName = (row: Row) =&gt; {</span>
+<span class="fc" id="L50">      val parentQuestionName = row.getAs[String](&quot;parent_question_name&quot;)</span>
+<span class="fc" id="L51">      val parentQuestionCategory = row.getAs[String](&quot;parent_question_category&quot;)</span>
+<span class="fc" id="L52">      val childQuestionEntityName = row.getAs[String](&quot;child_question_entity_name&quot;)</span>
+<span class="fc" id="L53">      val answerID = row.getAs[String](&quot;answer_id&quot;)</span>
+      // Build Answer Name
+<span class="fc" id="L55">      var answerName = row.getAs[String](&quot;answer_name&quot;)</span>
+<span class="pc bpc" id="L56" title="1 of 2 branches missed.">      answerName = if (answerName != null) answerName else answerID</span>
+      // Build Question Name
+<span class="fc" id="L58">      var questionName = parentQuestionName</span>
+
+<span class="fc" id="L60">      var i = 0</span>
+<span class="fc bfc" id="L61" title="All 2 branches covered.">      while (i &lt; questionName.length) {</span>
+<span class="fc" id="L62">        val c = questionName.charAt(i)</span>
+<span class="pc bpc" id="L63" title="1 of 2 branches missed.">        if (Character.isLetter(c)) {</span>
+<span class="fc" id="L64">          val sb = new StringBuilder(questionName)</span>
+<span class="fc" id="L65">          sb.setCharAt(i, Character.toUpperCase(c))</span>
+<span class="fc" id="L66">          questionName = sb.toString()</span>
+<span class="fc" id="L67">          i = Integer.MAX_VALUE-1</span>
+        }
+<span class="fc" id="L69">        i += 1</span>
+      }
+<span class="pc bpc" id="L71" title="1 of 2 branches missed.">      if (row.getAs[String](&quot;answered_question_id&quot;).startsWith(&quot;attitudes_agree&quot;)) {</span>
+<span class="nc" id="L72">        val idx = questionName.indexOf(&quot;:&quot;)</span>
+<span class="nc bnc" id="L73" title="All 2 branches missed.">        questionName = if (idx == -1) questionName else questionName.substring(0, idx)</span>
+      }
+      // Build Question Category
+<span class="fc" id="L76">      val questionCategory = parentQuestionCategory</span>
+
+<span class="pc bpc" id="L78" title="1 of 2 branches missed.">      if (childQuestionEntityName == null) {</span>
+<span class="fc" id="L79">        s&quot;$questionCategory &gt;&gt; $questionName &gt;&gt; $answerName&quot;</span>
+      } else {
+        // Build Question Entity Name
+<span class="nc" id="L82">        val entityName = childQuestionEntityName.replaceAll(&quot;\\*\\*&quot;, &quot;&quot;)</span>
+<span class="nc" id="L83">        s&quot;$questionCategory &gt;&gt; $questionName &gt;&gt; $entityName &gt;&gt; $answerName&quot;</span>
+      }
+    }
+
+<span class="fc" id="L87">    val getDisplayNameUDF = udf(getDisplayName)</span>
+<span class="fc" id="L88">    val columns = struct(denormalized.columns.head, denormalized.columns.tail: _*)</span>
+
+<span class="fc" id="L90">    val result = denormalized</span>
+<span class="fc" id="L91">      .withColumn(&quot;parent_question_category&quot;, regexp_replace(col(&quot;parent_question_category&quot;), &quot;\\|&quot;, &quot;&gt;&gt;&quot;))</span>
+<span class="fc" id="L92">      .withColumn(&quot;child_question_category&quot;, regexp_replace(col(&quot;child_question_category&quot;), &quot;\\|&quot;, &quot;&gt;&gt;&quot;))</span>
+<span class="fc" id="L93">      .withColumn(&quot;DisplayName&quot;, getDisplayNameUDF(columns))</span>
+<span class="fc" id="L94">      .select(Seq[Column](col(&quot;attribute_id&quot;), col(&quot;DisplayName&quot;)): _*)</span>
+<span class="fc" id="L95">    return result</span>
+  }
+
+  def getAttributes(denormalized: DataFrame, attributes: Seq[String]): DataFrame = {
+<span class="fc" id="L99">    denormalized.dropDuplicates(attributes.head, attributes: _*)</span>
+  }
+
+  def denormalize(rawLong: DataFrame,
+                  rawCodes: DataFrame,
+                  rawSubvariables: DataFrame,
+                  rawParentDefinitions: DataFrame,
+                  rawChildDefinitions: DataFrame): DataFrame = {
+
+<span class="fc" id="L108">    val long = rawLong</span>
+<span class="fc" id="L109">    .deduplicateLong()</span>
+<span class="fc" id="L110">      .withColumnRenamed(&quot;value&quot;, &quot;answer_id&quot;)</span>
+
+<span class="fc" id="L112">    val codes = rawCodes</span>
+<span class="fc" id="L113">      .deduplicateCodes()</span>
+<span class="fc" id="L114">      .withColumnRenamed(&quot;name&quot;,&quot;answer_name&quot;)</span>
+
+<span class="fc" id="L116">    val subvariables = rawSubvariables</span>
+<span class="fc" id="L117">      .deduplicateSubvariables()</span>
+    
+
+<span class="fc" id="L120">    val parent = rawParentDefinitions</span>
+<span class="fc" id="L121">      .deduplicateDefinitions()</span>
+<span class="fc" id="L122">      .withColumnRenamed(&quot;alias&quot;, &quot;parent_question_id&quot;)</span>
+<span class="fc" id="L123">      .withColumnRenamed(&quot;name&quot;, &quot;parent_question_name&quot;)</span>
+<span class="fc" id="L124">      .withColumnRenamed(&quot;category&quot;, &quot;parent_question_category&quot;)</span>
+<span class="fc" id="L125">      .join(subvariables, col(&quot;parent_question_id&quot;) === subvariables.col(&quot;subvariable_alias&quot;), &quot;left&quot;)</span>
+<span class="fc" id="L126">      .filter(col(&quot;subvariable_alias&quot;).isNull)</span>
+<span class="fc" id="L127">      .select(Seq[Column](</span>
+<span class="fc" id="L128">        col(&quot;parent_question_id&quot;),</span>
+<span class="fc" id="L129">        col(&quot;parent_question_name&quot;),</span>
+<span class="fc" id="L130">        col(&quot;parent_question_category&quot;)): _*)</span>
+
+<span class="fc" id="L132">    val child = rawChildDefinitions</span>
+<span class="fc" id="L133">      .deduplicateDefinitions()</span>
+<span class="fc" id="L134">      .withColumnRenamed(&quot;alias&quot;, &quot;child_question_id&quot;)</span>
+<span class="fc" id="L135">      .withColumnRenamed(&quot;name&quot;, &quot;child_question_name&quot;)</span>
+<span class="fc" id="L136">      .withColumnRenamed(&quot;category&quot;, &quot;child_question_category&quot;)</span>
+<span class="fc" id="L137">      .addChildQuestionEntityName()</span>
+
+<span class="fc" id="L139">    val questions = parent</span>
+<span class="fc" id="L140">      .join(subvariables, col(&quot;parent_question_id&quot;) === subvariables.col(&quot;definition_alias&quot;), &quot;left&quot;)</span>
+<span class="fc" id="L141">      .join(child, col(&quot;child_question_id&quot;) === subvariables.col(&quot;subvariable_alias&quot;), &quot;left&quot;)</span>
+<span class="fc" id="L142">      .addAnsweredQuestionID</span>
+<span class="fc" id="L143">      .deduplicateQuestions</span>
+
+<span class="fc" id="L145">    val result = long.join(questions, (col(&quot;answered_question_id&quot;) === long.col(&quot;definition_alias&quot;)))</span>
+<span class="fc" id="L146">      .join(codes, (col(&quot;answered_question_id&quot;) === codes.col(&quot;definition_alias&quot;)) and col(&quot;answer_id&quot;) === codes.col(&quot;value&quot;), &quot;left&quot;)</span>
+<span class="fc" id="L147">      .select(Seq[Column](</span>
+<span class="fc" id="L148">        long(&quot;date&quot;),</span>
+<span class="fc" id="L149">        long(&quot;yougov_id&quot;),</span>
+<span class="fc" id="L150">        col(&quot;answered_question_id&quot;),</span>
+<span class="fc" id="L151">        col(&quot;parent_question_id&quot;),</span>
+<span class="fc" id="L152">        col(&quot;child_question_id&quot;),</span>
+<span class="fc" id="L153">        col(&quot;answer_id&quot;),</span>
+<span class="fc" id="L154">        col(&quot;parent_question_category&quot;),</span>
+<span class="fc" id="L155">        col(&quot;parent_question_name&quot;),</span>
+<span class="fc" id="L156">        col(&quot;child_question_category&quot;),</span>
+<span class="fc" id="L157">        col(&quot;child_question_name&quot;),</span>
+<span class="fc" id="L158">        col(&quot;child_question_entity_name&quot;),</span>
+<span class="fc" id="L159">        col(&quot;answer_name&quot;)): _*)</span>
+<span class="fc" id="L160">      .withColumn(&quot;attribute_id&quot;,concat(col(&quot;answered_question_id&quot;),lit(&quot;-&quot;),col(&quot;answer_id&quot;)))</span>
+<span class="fc" id="L161">    return result</span>
+  }
+
+  override def run(args: JSONObject): Unit = {
+
+<span class="fc" id="L166">    val longPath = args.getString(&quot;long_path&quot;)</span>
+<span class="fc" id="L167">    val codespath = args.getString(&quot;codes_path&quot;)</span>
+<span class="fc" id="L168">    val definitionspath = args.getString(&quot;definitions_path&quot;)</span>
+<span class="fc" id="L169">    val subvariablesPath = args.getString(&quot;subvariables_path&quot;)</span>
+<span class="fc" id="L170">    val datesToBeUsed = args.getSeq[String](&quot;dates_to_be_used&quot;)</span>
+<span class="fc" id="L171">    val outputPath = args.getString(&quot;output_path&quot;)</span>
+<span class="fc" id="L172">    val dictionaryOutputPath = args.getString(&quot;dictionary_output_path&quot;)</span>
+<span class="fc" id="L173">    val threadCount = args.getOrElse[Int](&quot;thread_count&quot;, 1)</span>
+
+<span class="fc" id="L175">    val inputPaths = InputPaths(longPath,codespath,definitionspath,subvariablesPath)</span>
+
+<span class="fc" id="L177">    generate(</span>
+<span class="fc" id="L178">      inputPaths,</span>
+<span class="fc" id="L179">      datesToBeUsed,</span>
+<span class="fc" id="L180">      outputPath,</span>
+<span class="fc" id="L181">      dictionaryOutputPath,</span>
+<span class="fc" id="L182">      threadCount)</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

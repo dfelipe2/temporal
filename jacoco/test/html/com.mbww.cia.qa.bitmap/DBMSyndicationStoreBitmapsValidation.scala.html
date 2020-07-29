@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DBMSyndicationStoreBitmapsValidation.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.qa.bitmap</a> &gt; <span class="el_source">DBMSyndicationStoreBitmapsValidation.scala</span></div><h1>DBMSyndicationStoreBitmapsValidation.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.qa.bitmap
+
+import java.io.{ByteArrayOutputStream, InputStream, ObjectOutputStream}
+
+import com.amazonaws.services.s3.AmazonS3
+import com.amazonaws.services.s3.model.GetObjectRequest
+import com.mbww.cia.common.{Constants, Module}
+import com.mbww.cia.common.Spark.spark
+import com.mbww.cia.qa.utils.{BitMapUtility, Setup}
+import org.apache.commons.io.IOUtils
+import org.apache.spark.sql.functions.col
+import org.json.JSONObject
+import org.slf4j.LoggerFactory
+
+<span class="fc" id="L15">class DBMSyndicationStoreBitmapsValidation extends Module {</span>
+<span class="pc" id="L16">  val logger = LoggerFactory.getLogger(&quot;CIA Pipeline&quot;)</span>
+
+   def validateBitmap(key: String, bucketName: String,awsS3Client: AmazonS3, expectedBitmapCount: String): Boolean = {
+<span class="nc" id="L19">    var objec = awsS3Client.getObject(new GetObjectRequest(bucketName, key))</span>
+<span class="nc" id="L20">    var objectData: InputStream = objec.getObjectContent</span>
+<span class="nc" id="L21">    var bos = new ByteArrayOutputStream()</span>
+<span class="nc" id="L22">    var oos = new ObjectOutputStream(bos)</span>
+<span class="nc" id="L23">    var arrayByte = IOUtils.toByteArray(objectData)</span>
+<span class="nc" id="L24">    var bitmap = BitMapUtility.deserializeBitmap(arrayByte)</span>
+<span class="nc" id="L25">    var outputLuidCount = bitmap.toArray().length.toString()</span>
+<span class="nc" id="L26">    var status= true</span>
+<span class="nc bnc" id="L27" title="All 6 branches missed.">    if (expectedBitmapCount == outputLuidCount) {</span>
+<span class="nc" id="L28">      logger.info(s&quot;-------------- Bitmap count ${outputLuidCount} is correct for location ---- :- &quot; + key)</span>
+    } else {
+<span class="nc" id="L30">      logger.info(&quot;############## Bitmap location  is &quot; + key)</span>
+<span class="nc" id="L31">      logger.info(&quot;##############Actual    bitmap count is &quot; + outputLuidCount)</span>
+<span class="nc" id="L32">      logger.info(&quot;############# expected  Bitmap count  is &quot; + expectedBitmapCount)</span>
+<span class="nc" id="L33">      status =false</span>
+    }
+<span class="nc" id="L35">    return status</span>
+  }
+
+
+<span class="fc" id="L39">  def validation(bucket: String, denormalized_path: String, denormalized_id: String, denormalized_filter_expr: String, infobase_path: String, infobase_id: String, infobase_bitmap_id: String, partition_attribute_id: String, output_path: String,awsS3Client: AmazonS3,setup:Setup): Boolean =</span>
+<span class="pc bnc" id="L40" title="All 2 branches missed.">    {</span>
+<span class="fc" id="L41">      val denormalized = spark.read.parquet(denormalized_path)</span>
+<span class="fc" id="L42">      val infobase = spark.read.parquet(infobase_path)</span>
+<span class="fc" id="L43">      val mapping_keys =infobase.withColumn(Constants.MERGE_KEY, col(infobase_id))</span>
+<span class="fc" id="L44">      val join_condition = mapping_keys(Constants.MERGE_KEY) === denormalized(denormalized_id)</span>
+<span class="fc" id="L45">      val join_type = &quot;inner&quot;</span>
+<span class="fc" id="L46">      val df = denormalized.join(mapping_keys, join_condition, join_type)</span>
+<span class="fc" id="L47">      val platformList=df.select(&quot;platform&quot;).distinct()</span>
+<span class="fc" id="L48">      var pValues = platformList.collect()</span>
+<span class="pc bpc" id="L49" title="1 of 2 branches missed.">      pValues.foreach { x =&gt;</span>
+<span class="fc" id="L50">        val platformValue=x.mkString</span>
+<span class="fc" id="L51">        println(&quot;platform is : &quot; + platformValue)</span>
+<span class="fc" id="L52">        val expectedBitmap = df.filter(s&quot;platform='${platformValue}'&quot;)</span>
+<span class="fc" id="L53">        val expectedCount = expectedBitmap.count()</span>
+<span class="fc" id="L54">        val modifiedPath = output_path + s&quot;platform=${platformValue}/&quot;</span>
+<span class="fc" id="L55">        var fileLists = BitMapUtility.getFilePathfromS3V2(setup.bucketName, modifiedPath, awsS3Client)</span>
+<span class="pc bpc" id="L56" title="1 of 2 branches missed.">        fileLists.foreach { y =&gt;</span>
+<span class="nc" id="L57">          logger.info(y)</span>
+<span class="nc" id="L58">          logger.info(expectedCount.toString)</span>
+<span class="nc bnc" id="L59" title="All 2 branches missed.">          if (!(validateBitmap(y, setup.bucketName, awsS3Client, expectedCount.toString))) {</span>
+<span class="nc" id="L60">            return false</span>
+          }
+        }
+      }
+
+<span class="fc" id="L65">      true</span>
+    }
+
+  override def run(args: JSONObject): Unit = {
+<span class="fc" id="L69">    val denormalized_path = args.getString(&quot;denormalized_path&quot;)</span>
+<span class="fc" id="L70">    val denormalized_id = args.getString(&quot;denormalized_id&quot;)</span>
+<span class="fc" id="L71">    val denormalized_filter_expr = args.getString(&quot;denormalized_filter_expr&quot;)</span>
+<span class="fc" id="L72">    val infobase_path = args.getString(&quot;infobase_path&quot;)</span>
+<span class="fc" id="L73">    val infobase_id = args.getString(&quot;infobase_id&quot;)</span>
+<span class="fc" id="L74">    val infobase_bitmap_id = args.getString(&quot;infobase_bitmap_id&quot;)</span>
+<span class="fc" id="L75">    val partition_attribute_id = args.getString(&quot;partition_attribute_id&quot;)</span>
+<span class="fc" id="L76">    val output_path = args.getString(&quot;output_path&quot;)</span>
+<span class="fc" id="L77">     val marketName = args.getString(&quot;marketName&quot;)</span>
+<span class="fc" id="L78">     val bucket = args.getString(&quot;bucket&quot;)</span>
+<span class="fc" id="L79">     val dataProviderName = args.getString(&quot;dataProviderName&quot;)</span>
+<span class="fc" id="L80">     val matchingPartnerName = args.getString(&quot;matchingPartnerName&quot;)</span>
+<span class="fc" id="L81">     var setup = new Setup(marketName, bucket, dataProviderName, matchingPartnerName)</span>
+<span class="fc" id="L82">     var awsS3Client = setup.awsS3Client</span>
+
+<span class="fc" id="L84">     validation(</span>
+<span class="fc" id="L85">       bucket,</span>
+<span class="fc" id="L86">      denormalized_path,</span>
+<span class="fc" id="L87">       denormalized_id,</span>
+<span class="fc" id="L88">       denormalized_filter_expr,</span>
+<span class="fc" id="L89">       infobase_path,</span>
+<span class="fc" id="L90">       infobase_id,</span>
+<span class="fc" id="L91">       infobase_bitmap_id,</span>
+<span class="fc" id="L92">       partition_attribute_id,</span>
+<span class="fc" id="L93">        output_path,</span>
+<span class="fc" id="L94">       awsS3Client,</span>
+<span class="fc" id="L95">       setup</span>
+            )
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>FactualJp.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.denormalizer</a> &gt; <span class="el_source">FactualJp.scala</span></div><h1>FactualJp.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.denormalizer
+
+import com.mbww.cia.common.Spark._
+import com.mbww.cia.common.{Module, _}
+import org.apache.spark.sql.SaveMode
+import org.apache.spark.sql.functions._
+import org.json.JSONObject
+
+<span class="fc" id="L9">class FactualJp extends Module {</span>
+
+
+  def generateSQL(factualCwParquetPath: String,
+                  factualFactParquetBasePath: String,
+                  factualPlaceCategoryLabels: String,
+                  infobasePath: String,
+                  processingYear: String,
+                  processingMonths: Seq[String],
+                  outputPath: String): Unit = {
+
+<span class="fc" id="L20">    val factualCrosswalkData = spark.read.load(factualCwParquetPath)</span>
+<span class="fc" id="L21">    factualCrosswalkData.createOrReplaceTempView(&quot;factual_crosswalk_data&quot;)</span>
+<span class="fc" id="L22">    val factualDimensionData = spark.read.load(factualPlaceCategoryLabels)</span>
+<span class="fc" id="L23">    factualDimensionData.createOrReplaceTempView(&quot;factual_dimension_data&quot;)</span>
+<span class="fc" id="L24">    val factualUniquekeys = spark.read.load(infobasePath)</span>
+<span class="fc" id="L25">    factualUniquekeys.createOrReplaceTempView(&quot;factualUniquekeys&quot;)</span>
+
+<span class="fc" id="L27">    for (month &lt;- processingMonths) {</span>
+      //load fact data
+<span class="fc" id="L29">      val factualPerMonthPartitionedData = spark.read.load(factualFactParquetBasePath + &quot;year=&quot; + processingYear + &quot;/month=&quot; + month + &quot;/&quot;)</span>
+<span class="fc" id="L30">      factualPerMonthPartitionedData.createOrReplaceTempView(&quot;factual_per_month_partitioned_data&quot;)</span>
+
+      //join fact and dimension
+<span class="fc" id="L33">      val factualPerMonthPartitionedDataCategory = spark.sql(&quot;SELECT a.factual_id, a.local_timestamp, a.locality, a.region,postcode, a.dwell_minutes , a.place_id, a.place_name, a.place_chain_id, b.tier1 FROM factual_per_month_partitioned_data a inner join factual_dimension_data b ON a.place_id = b.place_id&quot;)</span>
+<span class="fc" id="L34">      factualPerMonthPartitionedDataCategory.createOrReplaceTempView(&quot;factual_per_month_partitioned_data_category&quot;)</span>
+
+      //create myTimestamp
+<span class="fc" id="L37">      val factualPerMonthPartitionedDataTimestamp = spark.sql(&quot;SELECT local_timestamp,  to_timestamp(REPLACE(SUBSTRING(local_timestamp,1,19),'T',' '),'yyyy-MM-dd HH:mm:ss') as myTimestamp, factual_id, locality, region, postcode, dwell_minutes, place_id, place_name, place_chain_id, tier1  FROM factual_per_month_partitioned_data_category&quot;)</span>
+<span class="fc" id="L38">      factualPerMonthPartitionedDataTimestamp.createOrReplaceTempView(&quot;factual_per_month_partitioned_data_timestamp&quot;)</span>
+
+      //join cw and infobase
+<span class="fc" id="L41">      val factualCwUniqueKeys = spark.sql(&quot;SELECT a.factual_id, a.pelid,  b.numericId, b.stringId FROM factual_crosswalk_data a inner join factualUniquekeys b ON a.pelid = b.stringId&quot;)</span>
+<span class="fc" id="L42">      factualCwUniqueKeys.createOrReplaceTempView(&quot;factual_cw_uniqueKeys&quot;)</span>
+
+      //fact without duplicates
+<span class="fc" id="L45">      val factualFilterDup = spark.sql(&quot;select * from (select ROW_NUMBER()  OVER(PARTITION BY factual_id, local_timestamp, myTimestamp, locality, region, postcode, dwell_minutes, place_id, place_name, place_chain_id, tier1  ORDER BY local_timestamp) as RowNum,  factual_id, local_timestamp,myTimestamp, locality, region, postcode, dwell_minutes, place_id, place_name, place_chain_id, tier1  from factual_per_month_partitioned_data_timestamp)x where RowNum=1&quot;)</span>
+<span class="fc" id="L46">      factualFilterDup.createOrReplaceTempView(&quot;factual_filter_dup&quot;)</span>
+
+      //join cw infobase and fact
+<span class="fc" id="L49">      val factualFactJoinedWithCrosswalkUniqueKeys = spark.sql(&quot;SELECT a.local_timestamp,  a.myTimestamp, a.factual_id, a.locality, a.region, a.postcode, a.dwell_minutes, a.place_id, a.place_name, a.place_chain_id, a.tier1,b.numericId, b.stringId, b.pelid FROM factual_filter_dup a inner join factual_cw_uniqueKeys b ON (a.factual_id=b.factual_id )&quot;)</span>
+<span class="fc" id="L50">      factualFactJoinedWithCrosswalkUniqueKeys.createOrReplaceTempView(&quot;factual_fact_joined_with_crosswalk_unique_keys&quot;)</span>
+
+      //include date
+<span class="fc" id="L53">      val factualFactsWithDate = spark.sql(&quot;SELECT local_timestamp, TO_DATE(CAST(UNIX_TIMESTAMP(myTimestamp,'yyyy-MM-dd') AS TIMESTAMP)) AS date,&quot; +</span>
+        &quot; hour(myTimestamp) as hour, factual_id, locality, region, postcode, dwell_minutes, place_id, place_name, place_chain_id, tier1,pelid,numericId,stringId FROM factual_fact_joined_with_crosswalk_unique_keys&quot;)
+<span class="fc" id="L55">      factualFactsWithDate.createOrReplaceTempView(&quot;factual_facts_with_date&quot;)</span>
+<span class="fc" id="L56">      spark.sql(&quot;SELECT date, local_timestamp, factual_id, locality, region, postcode, dwell_minutes, place_id, place_name, place_chain_id, tier1,&quot; +</span>
+<span class="fc" id="L57">        &quot; factual_id, numericId, stringId,  case when hour=0 then '23:00-01:00' else case when hour=1 then '23:00-01:00' else case when hour=2 then '02:00-04:00' else case when hour=3 then '02:00-04:00' else case when hour=4 then '02:00-04:00' else case when hour=5 then '05:00-06:00' else case when hour=6 then '05:00-06:00' else case when hour=7 then '07:00-08:00' else case when hour=8 then '07:00-08:00' else case when hour=9 then '09:00-10:00' else case when hour=10 then '09:00-10:00' else case when hour=11 then '11:00-13:00' else case when hour=12 then '11:00-13:00' else case when hour=13 then '11:00-13:00' else case when hour=14 then '14:00-16:00' else case when hour=15 then '14:00-16:00' else case when hour=16 then '14:00-16:00' else case when hour=17 then '17:00-18:00' else case when hour=18 then '17:00-18:00' else case when hour=19 then '19:00-20:00' else case when hour=20 then '19:00-20:00' else case when hour=21 then '21:00-22:00' else case when hour=22 then '21:00-22:00' else case when hour=23 then '23:00-01:00' else case when hour=24 then '23:00-01:00'  else 'NA' END END END END END END END END END END END END END END END END END END END END END END END END END as daypart FROM factual_facts_with_date&quot;).createOrReplaceTempView(&quot;factual_data_with_dayparts&quot;)</span>
+
+<span class="fc" id="L59">      val dfResult = spark.sql(&quot;SELECT * FROM factual_data_with_dayparts&quot;)</span>
+
+<span class="fc" id="L61">      val selectColumns = Seq(col(&quot;numericId&quot;).as(&quot;mbid&quot;),col(&quot;stringId&quot;).as(&quot;mbid_value&quot;),col(&quot;factual_id&quot;), col(&quot;local_timestamp&quot;)</span>
+<span class="fc" id="L62">        ,  col(&quot;date&quot;),col(&quot;locality&quot;),</span>
+<span class="fc" id="L63">        col(&quot;region&quot;), col(&quot;postcode&quot;), col(&quot;dwell_minutes&quot;), col(&quot;place_id&quot;),</span>
+<span class="fc" id="L64">        col(&quot;place_name&quot;), col(&quot;place_chain_id&quot;),</span>
+<span class="fc" id="L65">        col(&quot;daypart&quot;), col(&quot;tier1&quot;).as(&quot;category&quot;))</span>
+
+<span class="fc" id="L67">      val partitionColumns = List(&quot;date&quot;)</span>
+
+<span class="fc" id="L69">      dfResult</span>
+<span class="fc" id="L70">        .select(selectColumns: _*)</span>
+<span class="fc" id="L71">        .where(&quot;locality is not null and locality != ''&quot;)</span>
+<span class="fc" id="L72">        .where(&quot;region is not null and region != ''&quot;)</span>
+<span class="fc" id="L73">        .where(&quot;mbid_value != 'UNMATCH'&quot;)</span>
+<span class="fc" id="L74">        .write.mode(SaveMode.Append)</span>
+<span class="fc" id="L75">        .partitionBy(partitionColumns: _*)</span>
+<span class="fc" id="L76">        .parquet(outputPath)</span>
+    }
+  }
+  override def run(args: JSONObject): Unit = {
+<span class="fc" id="L80">    val factualCwParquetPath = args.getString(&quot;factualCwParquetPath&quot;)</span>
+<span class="fc" id="L81">    val factualFactParquetBasePath = args.getString(&quot;factualFactParquetBasePath&quot;)</span>
+<span class="fc" id="L82">    val factualPlaceCategoryLabels = args.getString(&quot;factual_place_category_labels&quot;)</span>
+<span class="fc" id="L83">    val infobasePath = args.getString(&quot;infobasePath&quot;)</span>
+<span class="fc" id="L84">    val processingYear = args.getString(&quot;processingYear&quot;)</span>
+<span class="fc" id="L85">    val processingMonths = args.getSeq[String](&quot;processingMonths&quot;)</span>
+<span class="fc" id="L86">    val outputPath = args.getString(&quot;outputPath&quot;)</span>
+
+<span class="fc" id="L88">    generateSQL(</span>
+<span class="fc" id="L89">      factualCwParquetPath,</span>
+<span class="fc" id="L90">      factualFactParquetBasePath,</span>
+<span class="fc" id="L91">      factualPlaceCategoryLabels,</span>
+<span class="fc" id="L92">      infobasePath,</span>
+<span class="fc" id="L93">      processingYear,</span>
+<span class="fc" id="L94">      processingMonths,</span>
+<span class="fc" id="L95">      outputPath)</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

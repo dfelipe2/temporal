@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>FileData.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.qa.utils</a> &gt; <span class="el_source">FileData.scala</span></div><h1>FileData.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.qa.utils
+import java.io.FileNotFoundException
+
+import com.amazonaws.services.s3.AmazonS3
+import org.apache.log4j.Logger
+
+object FileData {
+<span class="pc" id="L8">  private val logger = Logger.getLogger(getClass().getName())</span>
+<span class="fc" id="L9">  def matchingPartnerGetData(awsS3Client: AmazonS3,setup:Setup): Array[Array[Any]] = {</span>
+<span class="fc" id="L10">    val matchingPartner=setup.matchingPartner</span>
+<span class="nc" id="L11">    try {</span>
+<span class="fc" id="L12">      val lineIterator=UtilsFunction.getLinesFromFile(&quot;s3://&quot; + setup.bucketName + &quot;/&quot; + MatchingPartner.MATCHINGPARTNERFILEPATH, awsS3Client)</span>
+<span class="fc" id="L13">      val fileLength= lineIterator.duplicate.productIterator.length</span>
+<span class="fc" id="L14">      val testData = Array.ofDim[Any](fileLength.toInt, 2)</span>
+<span class="fc" id="L15">      var j=0</span>
+<span class="fc" id="L16">      lineIterator.drop(1)</span>
+<span class="fc" id="L17">      for(i&lt;- lineIterator)</span>
+<span class="fc" id="L18">      {</span>
+<span class="fc" id="L19">        val data = i.split(MatchingPartner.DELIMITER)</span>
+<span class="pc bpc" id="L20" title="1 of 2 branches missed.">        if (matchingPartner.equals(&quot;All&quot;)) {</span>
+<span class="nc" id="L21">          testData(j)(0) = data(0)</span>
+<span class="nc" id="L22">          testData(j)(1) = data</span>
+<span class="nc" id="L23">          j=j+1</span>
+        }
+        else {
+<span class="fc" id="L26">          testData(0)(0) = matchingPartner</span>
+<span class="fc bfc" id="L27" title="All 2 branches covered.">          if (matchingPartner.equals(data(0))) {</span>
+<span class="fc" id="L28">            testData(0)(1) = data</span>
+          }
+        }
+      }
+<span class="fc bfc" id="L32" title="All 2 branches covered.">      testData.filter(x =&gt; x(0) != (null)) }</span>
+    catch {
+      case exp:IllegalArgumentException =&gt;
+<span class="nc" id="L35">        logger.info(&quot;################### file is not present   &quot; + exp)</span>
+<span class="nc" id="L36">        return null</span>
+      case exp:FileNotFoundException =&gt;
+<span class="nc" id="L38">        logger.info(&quot;################### file is not present   &quot; + exp)</span>
+<span class="nc" id="L39">        return null</span>
+      case exp: ArrayIndexOutOfBoundsException =&gt;
+<span class="nc" id="L41">        logger.info(&quot;################### Array Index OutOf Bounds Exception  &quot; + exp)</span>
+<span class="nc" id="L42">        return null</span>
+      case exp: NoSuchElementException =&gt;
+<span class="nc" id="L44">        logger.info(&quot;null pointer  &quot; + exp)</span>
+<span class="nc" id="L45">        return null</span>
+    }
+  }
+
+
+<span class="fc" id="L50">  def dataSetFileData(awsS3Client: AmazonS3,setup:Setup): Array[Array[Any]] = {</span>
+<span class="fc" id="L51">    val matchingPartnerData=matchingPartnerGetData(awsS3Client,setup)</span>
+<span class="fc" id="L52">    val testData = Array.ofDim[Any](200, 2)</span>
+<span class="fc" id="L53">    var j=0</span>
+<span class="nc" id="L54">    try {</span>
+<span class="pc" id="L55">      for (i &lt;- 0 to matchingPartnerData.length - 1) {</span>
+<span class="fc" id="L56">        val lineIterator = UtilsFunction.getLinesFromFile(&quot;s3://&quot; + setup.bucketName + &quot;/&quot; + setup.dataSetFilePath(matchingPartnerData(i).array(1).asInstanceOf[Array[String]](2)), awsS3Client)</span>
+<span class="fc" id="L57">        lineIterator.next()</span>
+<span class="pc bpc" id="L58" title="1 of 2 branches missed.">        for (k &lt;- lineIterator) {</span>
+<span class="fc" id="L59">          testData(j)(0) = matchingPartnerData(i).array(0).toString</span>
+<span class="fc" id="L60">          testData(j)(1) = k</span>
+<span class="fc" id="L61">          j = j + 1</span>
+        }
+      }
+<span class="fc bfc" id="L64" title="All 2 branches covered.">      testData.filter(x =&gt; x(0) != (null))</span>
+    }
+    catch {
+      case exp:IllegalArgumentException =&gt;
+<span class="nc" id="L68">        logger.info(&quot;################### file is not present   &quot; + exp)</span>
+<span class="nc" id="L69">        return null</span>
+      case exp:FileNotFoundException =&gt;
+<span class="nc" id="L71">        logger.info(&quot;################### file is not present   &quot; + exp)</span>
+<span class="nc" id="L72">        return null</span>
+      case exp: ArrayIndexOutOfBoundsException =&gt;
+<span class="nc" id="L74">        logger.info(&quot;################### Array Index OutOf Bounds Exception  &quot; + exp)</span>
+<span class="nc" id="L75">        return null</span>
+      case exp: NoSuchElementException =&gt;
+<span class="nc" id="L77">        logger.info(&quot;null pointer  &quot; + exp)</span>
+<span class="nc" id="L78">        return null</span>
+    }
+  }
+
+<span class="fc" id="L82">  def dataProviderData(awsS3Client: AmazonS3,setup:Setup): Array[Array[Any]] = {</span>
+<span class="fc" id="L83">    val dataSetData = dataSetFileData(awsS3Client,setup)</span>
+<span class="pc bpc" id="L84" title="1 of 2 branches missed.">    if (setup.dataProvider.equals(&quot;All&quot;)) {</span>
+<span class="nc" id="L85">      return dataSetData</span>
+    }
+    else {
+<span class="fc" id="L88">      var filterTestData = Array.ofDim[Any]( 0, 17)</span>
+<span class="fc" id="L89">      var dataProviderSplitedArray=setup.dataProvider.split(&quot;,&quot;)</span>
+<span class="pc" id="L90">      for(i&lt;-0 to dataProviderSplitedArray.length-1)</span>
+      {
+<span class="pc bpc" id="L92" title="1 of 2 branches missed.">        if(dataProviderSplitedArray(i).contains(&quot;_&quot;))</span>
+        {
+<span class="nc bnc" id="L94" title="All 6 branches missed.">          filterTestData=filterTestData ++ dataSetData.filter{a =&gt;a(1).toString.split(MatchingPartner.DELIMITER)(0).equals(dataProviderSplitedArray(i).split(&quot;_&quot;)(0))&amp;&amp; a(1).toString.split(MatchingPartner.DELIMITER)(1).equals(dataProviderSplitedArray(i).split(&quot;_&quot;)(1))</span>
+          }
+        }
+        else {
+<span class="pc bpc" id="L98" title="1 of 2 branches missed.">          filterTestData = filterTestData ++ dataSetData.filter { a =&gt; a(1).toString.split(MatchingPartner.DELIMITER)(0).equals(dataProviderSplitedArray(i)) }</span>
+        }
+      }
+<span class="fc" id="L101">      filterTestData</span>
+    }
+  }
+
+
+<span class="fc" id="L106">}</span>
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

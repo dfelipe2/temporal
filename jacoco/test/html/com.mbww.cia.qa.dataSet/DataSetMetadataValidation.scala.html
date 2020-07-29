@@ -1,0 +1,425 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DataSetMetadataValidation.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.qa.dataSet</a> &gt; <span class="el_source">DataSetMetadataValidation.scala</span></div><h1>DataSetMetadataValidation.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.qa.dataSet
+
+import com.mbww.cia.common._
+import com.mbww.cia.qa.utils._
+import org.apache.log4j.{Level, Logger}
+import org.json.JSONObject
+import org.slf4j.LoggerFactory
+import com.mbww.cia.common.Spark.spark
+import org.apache.spark.sql.functions.{col, lit, to_date}
+import com.mbww.cia.common.Module
+import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.functions._
+
+<span class="nc" id="L15">class DataSetMetadataValidation extends Module {</span>
+
+<span class="nc" id="L17">  val logger = LoggerFactory.getLogger(&quot;CIA Pipeline - DataSetMetadataValidation&quot;)</span>
+<span class="nc" id="L18">  Logger.getLogger(&quot;org&quot;).setLevel(Level.ERROR)</span>
+<span class="nc" id="L19">  Logger.getLogger(&quot;org&quot;).setLevel(Level.WARN)</span>
+
+  /* Constant Values */
+<span class="nc" id="L22">  val metadataFilePath = &quot;taxonomy-store/matching_partner=acxiom/metadata.tsv&quot;</span>
+<span class="nc" id="L23">  val expectedFields = Array(&quot;dataset&quot;,&quot;mapping&quot;,&quot;market&quot;,&quot;version&quot;)</span>
+<span class="nc" id="L24">  val expectedMappingFields = Array(&quot;attr&quot;,&quot;id&quot;)</span>
+<span class="nc" id="L25">  val expectedMarketValue = Array(&quot;US&quot;,&quot;UK&quot;,&quot;JP&quot;,&quot;MX&quot;,&quot;AU&quot;)</span>
+
+  def validation(marketName: String, bucket: String, dataProviderName: String, matchingPartnerName: String, thread_count: Int) :Boolean = {
+
+<span class="nc" id="L29">    println(&quot;===&gt; Entered validation()&quot;)</span>
+
+<span class="nc" id="L31">    var setup = new Setup(marketName, bucket, dataProviderName, matchingPartnerName)</span>
+
+    /* It will fetch all the values from the Metadata.tsv file for the given Data Provider */
+<span class="nc" id="L34">    val dataValues = metadataTSVData(setup)</span>
+
+    //val metadata_Dataset_File_Path = getPathLocalResource(&quot;com/mbww/cia/test/qa/metadata&quot;)+dataValues(4)+dataValues(8)+&quot;/&quot;+dataValues(11)  //use this for Test run
+    /* Creating path for Metadata.json file from the values we got from Metadata.tsv file */
+<span class="nc" id="L38">    val metadata_Dataset_File_Path = &quot;s3://&quot;+setup.bucketName+dataValues(4)+dataValues(8)+&quot;/&quot;+dataValues(11)</span>
+
+    /* Creating DataFrame from the path created above */
+<span class="nc" id="L41">    val metadataJSON_DF = spark.read.json(metadata_Dataset_File_Path)</span>
+    /* Getting all the content from the JSON file by reading it as a Text file and creating a string of that value */
+<span class="nc" id="L43">    val metadataTextContent = spark.read.textFile(metadata_Dataset_File_Path).collect().mkString(&quot;&quot;).replace(&quot;[&quot;,&quot;&quot;).replace(&quot;]&quot;,&quot;&quot;)</span>
+
+<span class="nc" id="L45">    val sparkSession = spark</span>
+    import sparkSession.implicits._
+
+    /* In this DataFrame - 'finalDF' we have mapping fields (ID and ATTR) separated out */
+<span class="nc" id="L49">    val finalDF = getMappingFieldsJSON(metadataTextContent)</span>
+
+    //metadataJSON_DF.show(10,false)
+    //finalDF.show(10,false)
+
+    /* Checking if Previous_Version column in Metadata.tsv file contain any value or not*/
+<span class="nc bnc" id="L55" title="All 2 branches missed.">    if(dataValues(7).size == 10){</span>
+
+<span class="nc" id="L57">      val previousVersionValueDF = spark.sparkContext.parallelize(Array(dataValues(7))).toDF(&quot;version&quot;)</span>
+      //previousVersionValueDF.show()
+
+      /* Validating if the Previous Version value provided in the Metadata.json file is of correct format or not */
+<span class="nc" id="L61">      versionFormatValidation(previousVersionValueDF)</span>
+
+      //val previous_Version_Path = getPathLocalResource(&quot;com/mbww/cia/test/qa/metadata&quot;)+dataValues(4)+dataValues(7)+&quot;/&quot;+dataValues(11) //use this for Test run
+      /* Creating Path for the Previous_Version metadata.json file */
+<span class="nc" id="L65">      val previous_Version_Path = &quot;s3://&quot;+setup.bucketName+dataValues(4)+dataValues(7)+&quot;/&quot;+dataValues(11)</span>
+
+<span class="nc" id="L67">      val previous_Version_DF = spark.read.json(previous_Version_Path)</span>
+<span class="nc" id="L68">      val previous_Version_TextContent = spark.read.textFile(previous_Version_Path).collect().mkString(&quot;&quot;).replace(&quot;[&quot;,&quot;&quot;).replace(&quot;]&quot;,&quot;&quot;)</span>
+      /* Getting all the content from the JSON file by reading it as a Text file and creating a string of that value */
+<span class="nc" id="L70">      val previous_Version_FinalDF = getMappingFieldsJSON(previous_Version_TextContent)</span>
+      //previous_Version_FinalDF.show(10,false)
+
+<span class="nc" id="L73">      versionValueValidation(previous_Version_DF,dataValues(7))</span>
+
+<span class="nc" id="L75">      mappingIDInPreviousVersionValidation(previous_Version_FinalDF,finalDF)</span>
+    }
+
+<span class="nc" id="L78">    fieldsValidation(metadataJSON_DF)</span>
+<span class="nc" id="L79">    versionFormatValidation(metadataJSON_DF)</span>
+
+<span class="nc" id="L81">    versionValueValidation(metadataJSON_DF,dataValues(8))</span>
+<span class="nc" id="L82">    marketValueValidation(metadataJSON_DF)</span>
+<span class="nc" id="L83">    datasetValueValidation(metadataJSON_DF)</span>
+<span class="nc" id="L84">    mappingFieldsValidation(finalDF)</span>
+<span class="nc" id="L85">    mappingAttrValidation(finalDF)</span>
+<span class="nc" id="L86">    mappingIDAndAttrDuplicateValidation(finalDF)</span>
+<span class="nc" id="L87">    mappingIDValidation(finalDF)</span>
+<span class="nc" id="L88">    mappingIDDuplicateValidation(finalDF)</span>
+<span class="nc" id="L89">    mappingIDMinAndMaxValidation(finalDF)</span>
+<span class="nc" id="L90">    mappingAttrLowerCaseValidation(finalDF)</span>
+
+<span class="nc" id="L92">    println(&quot;==========&gt; Complete: End of DatasetMetadataValidaion &lt;==========&quot;)</span>
+<span class="nc" id="L93">    true</span>
+  }
+
+  /* This function provides just the Mapping field values from the metadata.json File i.e. 'ID' &amp; 'Attr' in form of a DataFrame*/
+  def getMappingFieldsJSON(text_File: String): DataFrame = {
+
+<span class="nc" id="L99">    println(&quot;===&gt; Entered getMappingFieldsJSON()&quot;)</span>
+
+<span class="nc" id="L101">    val startAt = text_File.indexOf(&quot;mapping&quot;)</span>
+<span class="nc" id="L102">    val endAt = text_File.size</span>
+<span class="nc" id="L103">    val finalFile = &quot;[&quot;+text_File.slice(startAt+9,endAt-1)+&quot;]&quot;</span>
+
+    //println(&quot;Value of finalFile =&gt; &quot;+finalFile)
+
+    //val sparkSession: SparkSession = spark
+<span class="nc" id="L108">    val sparkSession= spark</span>
+    import sparkSession.implicits._
+
+    //import spark.implicits._
+
+<span class="nc" id="L113">    val finalDataset = spark.createDataset(finalFile :: Nil)</span>
+<span class="nc" id="L114">    val finalDF = spark.read.json(finalDataset)</span>
+
+<span class="nc" id="L116">    finalDF</span>
+  }
+
+  /* This function checks whether all the required fields are present in the Metadata.json file or not*/
+<span class="nc" id="L120">  def fieldsValidation(metadataJSON_DF: DataFrame): Boolean = {</span>
+
+<span class="nc" id="L122">    println(&quot;===&gt; Entered fieldsValidation()&quot;)</span>
+
+<span class="nc" id="L124">    val actualFields = metadataJSON_DF.columns</span>
+<span class="nc" id="L125">    println(&quot;Value of actualFields =&gt; &quot;+actualFields.mkString(&quot; || &quot;))</span>
+
+<span class="nc" id="L127">    val check = actualFields diff expectedFields</span>
+<span class="nc" id="L128">    println(&quot;Value of check =&gt; &quot;+check.mkString(&quot; || &quot;))</span>
+
+<span class="nc bnc" id="L130" title="All 4 branches missed.">    if(check.size == 0 &amp;&amp; actualFields.size == 4){</span>
+<span class="nc" id="L131">      true</span>
+    }else {
+<span class="nc" id="L133">      throw new RuntimeException(&quot;fieldsValidation | FAILED: Expected fields were not found in the input metadata JSON file&quot;)</span>
+      false
+    }
+  }
+
+  /* This function validates whether the version provided is in the correct format or not*/
+<span class="nc" id="L139">  def versionFormatValidation(df: DataFrame): Boolean = {</span>
+
+<span class="nc" id="L141">    println(&quot;===&gt; Entered versionFormatValidation()&quot;)</span>
+
+<span class="nc" id="L143">    val df1=df.select(to_date(col(&quot;version&quot;), &quot;yyyy_MM_dd&quot;).alias(&quot;version&quot;)).filter(&quot;version is not null&quot;)</span>
+    //df1.show(false)
+
+<span class="nc bnc" id="L146" title="All 2 branches missed.">    if(df1.count() == 1){</span>
+<span class="nc" id="L147">      true</span>
+    }else{
+<span class="nc" id="L149">      throw new RuntimeException(&quot;versionFormatValidation | FAILED: Field 'Version' is not in correct format &quot;)</span>
+      false
+    }
+  }
+
+  /* This function validates whether the Version value in the 'Previous Version' column and 'Version' field in JSON file matches or not */
+<span class="nc" id="L155">  def versionValueValidation(json_DF: DataFrame, metadataTSV_Value: String): Boolean = {</span>
+
+<span class="nc" id="L157">    println(&quot;===&gt; Entered versionValueValidation()&quot;)</span>
+
+<span class="nc" id="L159">    val actual_Version_Value = json_DF.select(&quot;version&quot;)</span>
+<span class="nc" id="L160">      .collect()</span>
+<span class="nc" id="L161">      .mkString(&quot;&quot;)</span>
+<span class="nc" id="L162">      .replace(&quot;[&quot;,&quot;&quot;)</span>
+<span class="nc" id="L163">      .replace(&quot;]&quot;,&quot;&quot;)</span>
+
+<span class="nc" id="L165">    println(&quot;Value of actual_Version_Value =&gt; &quot;+actual_Version_Value)</span>
+<span class="nc" id="L166">    println(&quot;Value of metadataTSV_Value =&gt; &quot;+metadataTSV_Value)</span>
+
+<span class="nc bnc" id="L168" title="All 6 branches missed.">    if(actual_Version_Value == metadataTSV_Value)</span>
+<span class="nc" id="L169">      true</span>
+    else{
+<span class="nc" id="L171">      throw new RuntimeException(&quot;versionValueValidation | FAILED: Field 'Version' value doesnt match with the value provided in metadata.tsv file&quot;)</span>
+      false
+    }
+  }
+
+  /* This function validates whether the correct Market value is provided in the JSON file or not*/
+<span class="nc" id="L177">  def marketValueValidation(df: DataFrame): Boolean = {</span>
+
+<span class="nc" id="L179">    println(&quot;===&gt; Entered marketValueValidation()&quot;)</span>
+
+<span class="nc" id="L181">    val marketValue = df.select(&quot;market&quot;).collect().mkString(&quot;&quot;).replace(&quot;[&quot;,&quot;&quot;)replace(&quot;]&quot;,&quot;&quot;)</span>
+
+<span class="nc" id="L183">    println(&quot;Value of marketValue =&gt; &quot;+marketValue.mkString(&quot; || &quot;))</span>
+
+<span class="nc" id="L185">    val check = Array(marketValue) diff expectedMarketValue</span>
+<span class="nc" id="L186">    println(&quot;Value of check =&gt; &quot;+check.mkString(&quot; || &quot;))</span>
+
+<span class="nc bnc" id="L188" title="All 2 branches missed.">    if(check.size == 0){</span>
+<span class="nc" id="L189">      true</span>
+    }else{
+<span class="nc" id="L191">      throw new RuntimeException(&quot;marketValueValidation | FAILED: Market value is not correct in the input JSON&quot;)</span>
+      false
+    }
+  }
+
+  /* This function validates if the 'Dataset' value in the metadata.json file is valid or not*/
+<span class="nc" id="L197">  def datasetValueValidation(df: DataFrame): Boolean = {</span>
+
+<span class="nc" id="L199">    println(&quot;===&gt; Entered datasetValueValidation()&quot;)</span>
+
+<span class="nc" id="L201">    val df1 = df.filter(col(expectedFields(0)) rlike &quot;[^a-zA-Z0-9-&amp;() ]&quot;)</span>
+    //df1.show(false)
+
+<span class="nc bnc" id="L204" title="All 2 branches missed.">    if(df1.count() == 0){</span>
+<span class="nc" id="L205">      true</span>
+    }else{
+<span class="nc" id="L207">      throw new RuntimeException(&quot;datasetValueValidation | FAILED: Due to invalid Dataset value in the Input Metadata.json&quot;)</span>
+    }
+  }
+
+  /* This function validates if the 'Mapping' field have all the required sub-fields or not*/
+<span class="nc" id="L212">  def mappingFieldsValidation(df: DataFrame): Boolean = {</span>
+
+<span class="nc" id="L214">    println(&quot;===&gt; Entered mappingFieldsValidation()&quot;)</span>
+
+<span class="nc" id="L216">    val actualCols = df.columns</span>
+
+<span class="nc" id="L218">    val check = expectedMappingFields diff actualCols</span>
+<span class="nc" id="L219">    println(&quot;Value of check =&gt; &quot;+check.mkString(&quot; || &quot;))</span>
+<span class="nc" id="L220">    println(&quot;Value of actualCols =&gt; &quot;+actualCols.mkString(&quot; || &quot;))</span>
+
+<span class="nc bnc" id="L222" title="All 6 branches missed.">    if(check.size == 0 &amp; actualCols.size == 2){</span>
+<span class="nc" id="L223">      true</span>
+    }else{
+<span class="nc" id="L225">      throw new RuntimeException(&quot;mappingFieldsValidation | FAILED: Due to invalid fields in mapping field&quot;)</span>
+      false
+    }
+  }
+
+  /* This function validates if the 'ID' field is of correct format or not null*/
+<span class="nc" id="L231">  def mappingIDValidation(df: DataFrame): Boolean = {</span>
+
+<span class="nc" id="L233">    println(&quot;===&gt; Entered mappingIDValidation()&quot;)</span>
+
+<span class="nc" id="L235">    val id_DF = df.select(expectedMappingFields(1))</span>
+<span class="nc" id="L236">      .withColumn(expectedMappingFields(1),col(expectedMappingFields(1)).cast(&quot;Int&quot;))</span>
+<span class="nc" id="L237">      .where(expectedMappingFields(1)+&quot; is not null&quot;)</span>
+
+<span class="nc" id="L239">    println(&quot;Count of id_DF =&gt; &quot;+id_DF.count())</span>
+<span class="nc" id="L240">    println(&quot;Count of df =&gt; &quot;+df.count())</span>
+
+<span class="nc bnc" id="L242" title="All 2 branches missed.">    if(id_DF.count() == df.count()){</span>
+<span class="nc" id="L243">      true</span>
+    }else{
+<span class="nc" id="L245">      throw new RuntimeException(&quot;mappingIDValidation | FAILED: 'ID' field doesnt contain all numeric values&quot;)</span>
+    }
+  }
+
+  /* This function validates if the 'Attr' field is of correct format or not null*/
+<span class="nc" id="L250">  def mappingAttrValidation(df: DataFrame): Boolean = {</span>
+
+<span class="nc" id="L252">    println(&quot;===&gt; Entered mappingAttrValidation()&quot;)</span>
+
+<span class="nc" id="L254">    val noNullDF = df.where(expectedMappingFields(0)+&quot; is not null&quot;)</span>
+<span class="nc" id="L255">    val attr_DF = df.filter(col(expectedMappingFields(0)) rlike &quot;[^a-zA-Z0-9_.\\- ]&quot;)</span>
+
+<span class="nc bnc" id="L257" title="All 4 branches missed.">    if(attr_DF.count == 0 &amp;&amp; noNullDF.count() == df.count()){</span>
+<span class="nc" id="L258">      true</span>
+    }else{
+<span class="nc" id="L260">      throw new RuntimeException(&quot;mappingAttrValidation | FAILED: Due to 'attr' field having incorrect value in a row&quot;)</span>
+    }
+  }
+
+  /* This function validates if the 'ID' field should not be duplicate*/
+<span class="nc" id="L265">  def mappingIDDuplicateValidation(df: DataFrame): Boolean = {</span>
+
+<span class="nc" id="L267">    println(&quot;===&gt; Entered mappingIDDuplicateValidation()&quot;)</span>
+
+<span class="nc" id="L269">    val id_DF = df.select(expectedMappingFields(1)).distinct()</span>
+
+<span class="nc" id="L271">    println(&quot;Count of id_DF =&gt; &quot;+id_DF.count())</span>
+
+<span class="nc bnc" id="L273" title="All 2 branches missed.">    if(id_DF.count() == df.count()){</span>
+<span class="nc" id="L274">      true</span>
+    }else{
+<span class="nc" id="L276">      throw new RuntimeException(&quot;mappingIDDuplicateValidation | FAILED: Duplicate 'ID' value found in the file&quot;)</span>
+    }
+  }
+
+  /* This function validates if the 'Attr' field should not be duplicate*/
+<span class="nc" id="L281">  def mappingAttrDuplicateValidation(df: DataFrame): Boolean = {</span>
+
+<span class="nc" id="L283">    println(&quot;===&gt; Entered mappingAttrDuplicateValidation()&quot;)</span>
+
+<span class="nc" id="L285">    val attr_DF = df.select(expectedMappingFields(0)).distinct()</span>
+<span class="nc" id="L286">    println(&quot;Count of attr_DF =&gt; &quot;+attr_DF.count())</span>
+
+<span class="nc bnc" id="L288" title="All 2 branches missed.">    if(attr_DF.count() == df.count()){</span>
+<span class="nc" id="L289">      true</span>
+    }else{
+<span class="nc" id="L291">      throw new RuntimeException(&quot;mappingAttrDuplicateValidation | FAILED: Duplicate 'Attr' value found in the file&quot;)</span>
+    }
+  }
+
+  /* This function validates if the 'Attr' &amp; 'ID' fields combination should not be duplicate*/
+<span class="nc" id="L296">  def mappingIDAndAttrDuplicateValidation(df: DataFrame): Boolean = {</span>
+
+<span class="nc" id="L298">    println(&quot;===&gt; Entered mappingIDAndAttrDuplicateValidation()&quot;)</span>
+
+<span class="nc" id="L300">    val id_DF = df.distinct()</span>
+<span class="nc" id="L301">    println(&quot;Count of id_DF =&gt; &quot;+id_DF.count())</span>
+
+<span class="nc bnc" id="L303" title="All 2 branches missed.">    if(id_DF.count() == df.count()){</span>
+<span class="nc" id="L304">      true</span>
+    }else{
+<span class="nc" id="L306">      throw new RuntimeException(&quot;mappingIDAndAttrDuplicateValidation | FAILED: Duplicate 'ID' &amp; 'ATTR' combination value found in the file&quot;)</span>
+    }
+  }
+
+  /* This function validates if the 'ID' field should have correct minimum and maximum values*/
+<span class="nc" id="L311">  def mappingIDMinAndMaxValidation(df: DataFrame): Boolean = {</span>
+
+<span class="nc" id="L313">    println(&quot;===&gt; Entered mappingIDMinAndMaxValidation()&quot;)</span>
+
+<span class="nc" id="L315">    var id_DF = df.select(expectedMappingFields(1)).withColumn(expectedMappingFields(1),col(expectedMappingFields(1)).cast(&quot;Int&quot;))</span>
+
+<span class="nc" id="L317">    id_DF = id_DF.agg(min(expectedMappingFields(1)), max(expectedMappingFields(1)))</span>
+
+<span class="nc" id="L319">    val minMax = id_DF.collect().mkString(&quot;,&quot;)</span>
+<span class="nc" id="L320">      .replace(&quot;[&quot;,&quot;&quot;)</span>
+<span class="nc" id="L321">      .replace(&quot;]&quot;,&quot;&quot;)</span>
+<span class="nc" id="L322">      .split(&quot;,&quot;)</span>
+
+<span class="nc" id="L324">    println(&quot;Value of Min =&gt; &quot;+minMax(0))</span>
+<span class="nc" id="L325">    println(&quot;Value of Max =&gt; &quot;+minMax(1))</span>
+<span class="nc" id="L326">    println(&quot;Value of Count =&gt; &quot;+df.count())</span>
+
+<span class="nc bnc" id="L328" title="All 4 branches missed.">    if(minMax(0).toInt == 1 &amp;&amp; minMax(1).toInt == df.count()){</span>
+<span class="nc" id="L329">      true</span>
+    }else{
+<span class="nc" id="L331">      throw new RuntimeException(&quot;mappingIDMinAndMaxValidation | FAILED: Min Max Value of 'ID' is not correct&quot;)</span>
+    }
+  }
+
+  /* In this function we validate whether all the ID &amp; Attr in previous version are present in the current version file or not*/
+<span class="nc" id="L336">  def mappingIDInPreviousVersionValidation(previous_Version: DataFrame, current_Version: DataFrame): Boolean = {</span>
+
+<span class="nc" id="L338">    println(&quot;===&gt; Entered mappingIDInPreviousVersionValidation()&quot;)</span>
+
+<span class="nc" id="L340">    val checkDF = previous_Version.join(current_Version, Seq(expectedMappingFields(1),expectedMappingFields(0)),&quot;left_anti&quot;)</span>
+
+<span class="nc bnc" id="L342" title="All 2 branches missed.">    if(checkDF.count == 0){</span>
+<span class="nc" id="L343">      true</span>
+    }else{
+<span class="nc" id="L345">      throw new RuntimeException(&quot;mappingIDInPreviousVersionValidation | FAILED: All previous version 'ID' and 'ATTR' values are not present in Current Version&quot;)</span>
+    }
+  }
+
+<span class="nc" id="L349">  def mappingAttrLowerCaseValidation(df: DataFrame): Boolean = {</span>
+
+<span class="nc" id="L351">    println(&quot;===&gt; Entered mappingAttrLowerCaseValidation()&quot;)</span>
+<span class="nc" id="L352">    val lowerDF = df.withColumn(expectedMappingFields(0),lower(col(expectedMappingFields(0))))</span>
+
+<span class="nc" id="L354">    val joinDF = df.join(lowerDF,Seq(expectedMappingFields(0)),&quot;inner&quot;)</span>
+
+<span class="nc bnc" id="L356" title="All 2 branches missed.">    if(joinDF.count == lowerDF.count()){</span>
+<span class="nc" id="L357">      true</span>
+    }else{
+<span class="nc" id="L359">      joinDF.show(10,false)</span>
+<span class="nc" id="L360">      throw new RuntimeException(&quot;mappingAttrLowerCaseValidation | FAILED: 'Attr' value is not in lower case&quot;)</span>
+    }
+  }
+
+  /* It will fetch all the values from the Metadata.tsv file for the given Data Provider */
+  def metadataTSVData(setup:Setup): Array[String] = {
+
+<span class="nc" id="L367">    println(&quot;===&gt; Entered metadataTSVData()&quot;)</span>
+
+    //val full_metadataTSVFilePath = getPathLocalResource(&quot;com/mbww/cia/test/qa/metadata&quot;)+&quot;/&quot;+metadataFilePath   //Use this for Test Run Only
+<span class="nc" id="L370">    val full_metadataTSVFilePath = &quot;s3://&quot;+setup.bucketName+&quot;/&quot;+metadataFilePath</span>
+<span class="nc" id="L371">    println(&quot;Value of full_metadataTSVFilePath =&gt; &quot;+full_metadataTSVFilePath)</span>
+
+<span class="nc" id="L373">    val metadataTSV_DF = spark.read</span>
+<span class="nc" id="L374">      .option(&quot;delimiter&quot;,&quot;\t&quot;)</span>
+<span class="nc" id="L375">      .option(&quot;header&quot;,&quot;true&quot;)</span>
+<span class="nc" id="L376">      .csv(full_metadataTSVFilePath)</span>
+
+    //metadataTSV_DF.show(false)
+
+<span class="nc" id="L380">    val dataProviderSplit = setup.dataProvider.split(&quot;_&quot;)</span>
+<span class="nc" id="L381">    println(&quot;Value of dataProviderSplit =&gt; &quot;+dataProviderSplit.mkString(&quot; || &quot;))</span>
+
+<span class="nc bnc" id="L383" title="All 2 branches missed.">    val all_ValuesDF = if(dataProviderSplit.size == 2){</span>
+<span class="nc" id="L384">      metadataTSV_DF</span>
+<span class="nc" id="L385">        .filter(col(&quot;Data Provider&quot;).equalTo(dataProviderSplit(0)))</span>
+<span class="nc" id="L386">        .filter(col(&quot;Data Source&quot;).equalTo(dataProviderSplit(1)))</span>
+    }else{
+<span class="nc" id="L388">      metadataTSV_DF.filter(col(&quot;Data Provider&quot;).equalTo(setup.dataProvider)).limit(1)</span>
+    }
+
+<span class="nc bnc" id="L391" title="All 2 branches missed.">    if(all_ValuesDF.count() == 0)</span>
+<span class="nc" id="L392">      throw new RuntimeException(&quot;metadataTSVData | FAILED: Invalid 'Data Provider' name provided, no data found fot this value =&gt; &quot;+setup.dataProvider)</span>
+
+<span class="nc" id="L394">    val all_Values = all_ValuesDF.collect().mkString(&quot;&quot;)</span>
+<span class="nc" id="L395">      .replace(&quot;[&quot;,&quot;&quot;)</span>
+<span class="nc" id="L396">      .replace(&quot;]&quot;,&quot;&quot;)</span>
+<span class="nc" id="L397">      .split(&quot;,&quot;)</span>
+
+    //all_ValuesDF.show(false)
+<span class="nc" id="L400">    println(&quot;Value of all_Values =&gt; &quot;+all_Values.mkString(&quot; || &quot;))</span>
+
+<span class="nc" id="L402">    all_Values</span>
+  }
+
+  def getPathLocalResource(test_resource: String): String = {
+<span class="nc" id="L406">    &quot;file://&quot;+this.getClass.getClassLoader.getResource(test_resource).getPath</span>
+  }
+
+<span class="nc" id="L409">  override def run(args: JSONObject): Unit = {</span>
+
+<span class="nc" id="L411">    val marketName = args.getString(&quot;marketName&quot;)</span>
+<span class="nc" id="L412">    val bucket = args.getString(&quot;bucket&quot;)</span>
+<span class="nc" id="L413">    val dataProviderName = args.getString(&quot;dataProviderName&quot;)</span>
+<span class="nc" id="L414">    val matchingPartnerName = args.getString(&quot;matchingPartnerName&quot;)</span>
+<span class="nc" id="L415">    val thread_count = args.getOrElse[Int](&quot;thread_count&quot;, 1)</span>
+
+<span class="nc bnc" id="L417" title="All 2 branches missed.">    if(!validation(marketName,bucket,dataProviderName,matchingPartnerName,thread_count))</span>
+    {
+<span class="nc" id="L419">      throw new RuntimeException(&quot;-----------------Dataset File validation failed ---------------------&quot;)</span>
+    }
+
+  }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

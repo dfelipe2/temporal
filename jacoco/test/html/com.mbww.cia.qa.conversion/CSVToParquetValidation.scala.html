@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CSVToParquetValidation.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.qa.conversion</a> &gt; <span class="el_source">CSVToParquetValidation.scala</span></div><h1>CSVToParquetValidation.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.qa.conversion
+import com.mbww.cia.common.Spark._
+import com.mbww.cia.common.utility.Tools
+import com.mbww.cia.common.{Constants, Module, _}
+import com.mbww.cia.qa.utils.ValidationUtils
+import org.apache.spark.sql._
+import org.apache.spark.sql.functions.col
+import org.apache.spark.sql.types._
+import org.json._
+import org.slf4j.LoggerFactory
+import scala.collection._
+import scala.collection.mutable.Map
+
+<span class="fc" id="L14">class CSVToParquetValidation extends Module {</span>
+
+<span class="pc" id="L16">  val log = LoggerFactory.getLogger(&quot;CIA Pipeline&quot;)</span>
+<span class="fc" id="L17">  var csvDF : DataFrame = null;</span>
+<span class="fc" id="L18">  var parquetDF :DataFrame= null;</span>
+<span class="pc" id="L19">  var structTypeSchema:StructType = null</span>
+
+  def convert(input_path: String,
+              input_columns: Seq[String],
+              output_path: String,
+              partition_columns: Seq[String],
+              csv_options: Map[String, String],
+              parquet_options: Map[String, String],
+              select_columns: Seq[String]
+             ): Unit = {
+<span class="fc" id="L29">    val target_schema =</span>
+<span class="pc bpc" id="L30" title="1 of 2 branches missed.">      if (input_columns.mkString(&quot;,&quot;).contains(&quot;:&quot;)) {</span>
+<span class="nc" id="L31">        val column_mapping = input_columns.mkString(&quot;,&quot;)</span>
+<span class="nc" id="L32">        Tools.getStructType(column_mapping, &quot;,&quot;)</span>
+      } else {
+<span class="fc" id="L34">        StructType(input_columns.map(c =&gt; StructField(c, StringType, true)).toArray)</span>
+      }
+<span class="fc" id="L36">    val structTypeSchema =</span>
+<span class="pc bpc" id="L37" title="1 of 2 branches missed.">      if (select_columns.mkString(&quot;,&quot;).contains(&quot;:&quot;)) {</span>
+<span class="nc" id="L38">        val column_mapping = select_columns.mkString(&quot;,&quot;)</span>
+<span class="nc" id="L39">        Tools.getStructType(column_mapping, &quot;,&quot;)</span>
+      } else {
+<span class="fc" id="L41">        StructType(select_columns.map(c =&gt; StructField(c, StringType, true)).toArray)</span>
+      }
+
+<span class="pc bpc" id="L44" title="1 of 2 branches missed.">    if (!select_columns.isEmpty) {</span>
+
+
+<span class="fc" id="L47">      csvDF=  spark</span>
+<span class="fc" id="L48">        .read</span>
+<span class="fc" id="L49">        .option(&quot;mode&quot;, &quot;FAILFAST&quot;)</span>
+<span class="fc" id="L50">        .options(csv_options)</span>
+<span class="fc" id="L51">        .schema(target_schema)</span>
+<span class="fc" id="L52">        .format(Constants.CSV_FORMAT_SPEC)</span>
+<span class="fc" id="L53">        .load(input_path)</span>
+<span class="fc" id="L54">        .select(select_columns.map(col): _*)</span>
+
+    }
+    else {
+<span class="nc" id="L58">      csvDF=  spark</span>
+<span class="nc" id="L59">        .read</span>
+<span class="nc" id="L60">        .option(&quot;mode&quot;, &quot;FAILFAST&quot;)</span>
+<span class="nc" id="L61">        .options(csv_options)</span>
+<span class="nc" id="L62">        .schema(target_schema)</span>
+<span class="nc" id="L63">        .format(Constants.CSV_FORMAT_SPEC)</span>
+<span class="nc" id="L64">        .load(input_path)</span>
+
+    }
+
+<span class="fc" id="L68">    parquetDF = spark</span>
+<span class="fc" id="L69">      .read</span>
+<span class="fc" id="L70">      .options(parquet_options)</span>
+<span class="fc" id="L71">      .format(Constants.PARQUET_FORMAT_SPEC)</span>
+<span class="fc" id="L72">      .load(output_path)</span>
+
+    /**count validation*/
+<span class="fc" id="L75">    ValidationUtils.validateCount(csvDF, parquetDF)</span>
+
+    /**Columns name validation and Schema type validation*/
+<span class="fc" id="L78">    ValidationUtils.validateSchema(structTypeSchema,parquetDF.schema)</span>
+
+    /**Columns count validation*/
+<span class="fc" id="L81">    ValidationUtils.validateColumnsCount(csvDF, parquetDF)</span>
+
+  }
+
+  override def run(args: JSONObject): Unit = {
+
+<span class="fc" id="L87">    val input_path = args.getString(&quot;input_path&quot;)</span>
+<span class="fc" id="L88">    val input_columns = args.getSeq[String](&quot;columns&quot;)</span>
+<span class="fc" id="L89">    var select_columns = args.getOrElseSeq[String](&quot;select_columns&quot;, Seq.empty[String])</span>
+<span class="fc" id="L90">    val output_path = args.getString(&quot;output_path&quot;)</span>
+<span class="fc" id="L91">    val partition_columns = args.getSeq[String](&quot;partition_by&quot;)</span>
+<span class="fc" id="L92">    val csv_options_array = args.getSeq[JSONArray](&quot;csv_options&quot;)</span>
+<span class="fc" id="L93">      .map(a =&gt; (a.getString(0), a.getString(1)))</span>
+<span class="fc" id="L94">    val csv_options = csv_options_array.foldLeft(Map.empty[String, String])((map, obj) =&gt; map += obj)</span>
+<span class="fc" id="L95">    val parquet_options_array = args.getSeq[JSONArray](&quot;parquet_options&quot;)</span>
+<span class="pc" id="L96">      .map(a =&gt; (a.getString(0), a.getString(1)))</span>
+<span class="pc" id="L97">    val parquet_options = parquet_options_array.foldLeft(Map.empty[String, String])((map, obj) =&gt; map += obj)</span>
+
+<span class="fc" id="L99">    convert(</span>
+<span class="fc" id="L100">      input_path,</span>
+<span class="fc" id="L101">      input_columns,</span>
+<span class="fc" id="L102">      output_path,</span>
+<span class="fc" id="L103">      partition_columns,</span>
+<span class="fc" id="L104">      csv_options,</span>
+<span class="fc" id="L105">      parquet_options,</span>
+<span class="fc" id="L106">      select_columns</span>
+    )
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

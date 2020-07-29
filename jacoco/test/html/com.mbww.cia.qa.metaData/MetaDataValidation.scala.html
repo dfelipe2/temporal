@@ -1,0 +1,489 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MetaDataValidation.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.qa.metaData</a> &gt; <span class="el_source">MetaDataValidation.scala</span></div><h1>MetaDataValidation.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.qa.metaData
+
+import java.io.{BufferedReader, FileNotFoundException, InputStreamReader}
+import java.text.SimpleDateFormat
+import java.util.regex.Pattern
+
+import com.amazonaws.services.s3.AmazonS3
+import com.amazonaws.services.s3.model.GetObjectRequest
+import com.mbww.cia.common.Module
+import org.json.JSONObject
+import org.slf4j.LoggerFactory
+import com.mbww.cia.common._
+import com.mbww.cia.qa.utils.{FileData, MetaDataFile, Setup, UtilsFunction}
+
+<span class="fc" id="L15">class MetaDataValidation  extends Module  {</span>
+<span class="fc" id="L16">  val logger = LoggerFactory.getLogger(&quot;CIA Pipeline&quot;)</span>
+<span class="fc" id="L17">  def headerValidation(awsS3Client: AmazonS3,setup:Setup, metaDataFilePath: String, delimiter: String = &quot;\t&quot;): Boolean = {</span>
+<span class="nc" id="L18">    try {</span>
+<span class="pc bpc" id="L19" title="101 of 105 branches missed.">      case class actualMetaDataHeader(dataProvider: String, dataSource: String, displayName: String, datasetType: String, metadataSourceRootPath: String, taxonomyRootPath: String, timeLine: String, previousversion: String,currentversion:String, minorversion: String, displayFile: String, datasetMetadataFile: String)</span>
+<span class="fc" id="L20">      val expectedValue = MetaDataFile.MetaDataHeader()</span>
+<span class="fc" id="L21">      var line = &quot;&quot;</span>
+<span class="fc" id="L22">      val s3Object = awsS3Client.getObject(new GetObjectRequest(setup.bucketName, metaDataFilePath))</span>
+<span class="fc" id="L23">      val reader = new BufferedReader(new InputStreamReader(s3Object.getObjectContent))</span>
+<span class="pc bpc" id="L24" title="1 of 2 branches missed.">      if (!((line = reader.readLine).equals(null))) {</span>
+<span class="fc" id="L25">        var data = line.split(delimiter)</span>
+<span class="pc bpc" id="L26" title="1 of 2 branches missed.">        if (!(expectedValue.productIterator.length == data.length)) {</span>
+<span class="nc" id="L27">          logger.info(&quot;########### header length is not correct ,length is  ########### &quot; + data.length)</span>
+<span class="nc" id="L28">          return false</span>
+        }
+<span class="fc" id="L30">        logger.info(&quot;########### header length is  correct ,length is  ########### &quot; + data.length)</span>
+<span class="fc" id="L31">        var actualValue = actualMetaDataHeader(data(0), data(1), data(2), data(3), data(4), data(5),</span>
+<span class="fc" id="L32">          data(6), data(7), data(8), data(9), data(10),data(11))</span>
+<span class="pc bpc" id="L33" title="1 of 2 branches missed.">        if (!(actualValue.dataProvider.equals(expectedValue.dataProvider))) {</span>
+<span class="nc" id="L34">          logger.info(&quot;########### header name  dataProvider is not present ########### &quot;)</span>
+<span class="nc" id="L35">          return false</span>
+        }
+<span class="fc" id="L37">        logger.info(&quot;########### header name   dataProvider  is  present ########### &quot;)</span>
+<span class="pc bpc" id="L38" title="1 of 2 branches missed.">        if (!(actualValue.dataSource.equals(expectedValue.dataSource))) {</span>
+<span class="nc" id="L39">          logger.info(&quot;########### header name  dataSource is not present ########### &quot;)</span>
+<span class="nc" id="L40">          return false</span>
+        }
+<span class="fc" id="L42">        logger.info(&quot;########### header name   dataSource is  present ########### &quot;)</span>
+
+<span class="pc bpc" id="L44" title="1 of 2 branches missed.">        if (!(actualValue.displayName.equals(expectedValue.displayName))) {</span>
+<span class="nc" id="L45">          logger.info(&quot;########### header name  displayName is not present ########### &quot;)</span>
+<span class="nc" id="L46">          return false</span>
+        }
+<span class="fc" id="L48">        logger.info(&quot;########### header name   displayName is  present ########### &quot;)</span>
+<span class="pc bpc" id="L49" title="1 of 2 branches missed.">        if (!(actualValue.datasetType.equals(expectedValue.dataSetType))) {</span>
+<span class="nc" id="L50">          logger.info(&quot;########### header name  dataset Type is not present ########### &quot;)</span>
+<span class="nc" id="L51">          return false</span>
+        }
+<span class="fc" id="L53">        logger.info(&quot;########### header name   dataset Type is  present ########### &quot;)</span>
+<span class="pc bpc" id="L54" title="1 of 2 branches missed.">        if (!(actualValue.metadataSourceRootPath.equals(expectedValue.metaDataSourceRootPath))) {</span>
+<span class="nc" id="L55">          logger.info(&quot;########### header name  metadataSourceRootPath is not present ########### &quot;)</span>
+<span class="nc" id="L56">          return false</span>
+        }
+<span class="fc" id="L58">        logger.info(&quot;########### header name   metadataSourceRootPath is  present ########### &quot;)</span>
+<span class="pc bpc" id="L59" title="1 of 2 branches missed.">        if (!(actualValue.taxonomyRootPath.equals(expectedValue.taxonomyRootPath))) {</span>
+<span class="nc" id="L60">          logger.info(&quot;########### header name  taxonomyRootPath   is not present ########### &quot;)</span>
+<span class="nc" id="L61">          return false</span>
+        }
+<span class="fc" id="L63">        logger.info(&quot;########### header name  taxonomyRootPath  is  present ########### &quot;)</span>
+<span class="pc bpc" id="L64" title="1 of 2 branches missed.">        if (!(actualValue.timeLine.equals(expectedValue.timeLine))) {</span>
+<span class="nc" id="L65">          logger.info(&quot;########### header name timeLine is not present ########### &quot;)</span>
+<span class="nc" id="L66">          return false</span>
+        }
+<span class="fc" id="L68">        logger.info(&quot;########### header name timeLine is  present ########### &quot;)</span>
+<span class="pc bpc" id="L69" title="1 of 2 branches missed.">        if (!(actualValue.previousversion.equals(expectedValue.previousVersion))) {</span>
+<span class="nc" id="L70">          logger.info(&quot;########### header name previousVersion is not present ########### &quot;)</span>
+<span class="nc" id="L71">          return false</span>
+        }
+<span class="fc" id="L73">        logger.info(&quot;########### header name previousVersion is  present ########### &quot;)</span>
+<span class="pc bpc" id="L74" title="1 of 2 branches missed.">        if (!(actualValue.currentversion.equals(expectedValue.currentVersion))) {</span>
+<span class="nc" id="L75">          logger.info(&quot;########### header name currentVersion is not present ########### &quot;)</span>
+<span class="nc" id="L76">          return false</span>
+        }
+<span class="fc" id="L78">        logger.info(&quot;########### header name currentVersion is  present ########### &quot;)</span>
+<span class="pc bpc" id="L79" title="1 of 2 branches missed.">        if (!(actualValue.minorversion.equals(expectedValue.minorversion))) {</span>
+<span class="nc" id="L80">          logger.info(&quot;########### header name minorversion is not present ########### &quot;)</span>
+<span class="nc" id="L81">          return false</span>
+        }
+<span class="fc" id="L83">        logger.info(&quot;########### header name minorversion is  present ########### &quot;)</span>
+<span class="pc bpc" id="L84" title="1 of 2 branches missed.">        if (!(actualValue.displayFile.equals(expectedValue.displayFile))) {</span>
+<span class="nc" id="L85">          logger.info(&quot;########### header name displayFile is not present ########### &quot;)</span>
+<span class="nc" id="L86">          return false</span>
+        }
+<span class="fc" id="L88">        logger.info(&quot;########### header name displayFile is  present ########### &quot;)</span>
+<span class="pc bpc" id="L89" title="1 of 2 branches missed.">        if (!(actualValue.datasetMetadataFile.equals(expectedValue.datasetMetaFile))) {</span>
+<span class="nc" id="L90">          logger.info(&quot;########### header name datasetMetaFile is not present ########### &quot;)</span>
+<span class="nc" id="L91">          return false</span>
+        }
+<span class="fc" id="L93">        logger.info(&quot;########### header name datasetMetaFile is  present ########### &quot;)</span>
+      }
+    }
+    catch {
+      // Handle exceptions.
+      case exp: FileNotFoundException =&gt;
+<span class="nc" id="L99">        logger.info(&quot;################### file is not present   &quot; + exp)</span>
+<span class="nc" id="L100">        return false</span>
+      case exp: ArrayIndexOutOfBoundsException =&gt;
+<span class="nc" id="L102">        logger.info(&quot;################### ArrayIndexOutOfBoundsException  &quot; + exp)</span>
+<span class="nc" id="L103">        return false</span>
+      case exp: NullPointerException =&gt;
+<span class="nc" id="L105">        logger.info(&quot;null pointer  &quot; + exp)</span>
+<span class="nc" id="L106">        return false</span>
+    }
+<span class="fc" id="L108">    logger.info(&quot;------------------ metaData.tsv File  Header Validation Pass , All Header are present  --------------------------&quot;)</span>
+<span class="fc" id="L109">    true</span>
+  }
+
+<span class="fc" id="L112">  def specialCharacterValidation(awsS3Client: AmazonS3,setup:Setup, metaDataFilePath: String, delimiter: String = &quot;\t&quot;): Boolean = {</span>
+<span class="fc" id="L113">    UtilsFunction.specialCharacterValidation(awsS3Client, setup:Setup, metaDataFilePath)</span>
+  }
+  def timeFormateValidation(date: String): Boolean =
+<span class="pc" id="L116">    try {</span>
+<span class="fc" id="L117">      val df = new SimpleDateFormat(&quot;MM/dd/yyyy&quot;)</span>
+<span class="fc" id="L118">      df.setLenient(false)</span>
+<span class="fc" id="L119">      df.parse(date)</span>
+<span class="fc" id="L120">      true</span>
+    } catch {
+      case e: java.text.ParseException =&gt;
+<span class="nc" id="L123">        false</span>
+    }
+
+<span class="fc" id="L126">  def timeLineValueValidation(awsS3Client: AmazonS3,setup:Setup, metaDataFilePath: String, delimiter: String = &quot;\t&quot;): Boolean = {</span>
+<span class="pc bnc" id="L127" title="All 2 branches missed.">    try {</span>
+<span class="fc" id="L128">      var line = &quot;&quot;</span>
+<span class="fc" id="L129">      var s3Object = awsS3Client.getObject(new GetObjectRequest(setup.bucketName, metaDataFilePath))</span>
+<span class="fc" id="L130">      var reader = new BufferedReader(new InputStreamReader(s3Object.getObjectContent))</span>
+<span class="fc" id="L131">      var filelength = reader.lines().count()</span>
+<span class="fc" id="L132">      s3Object = awsS3Client.getObject(new GetObjectRequest(setup.bucketName, metaDataFilePath))</span>
+<span class="fc" id="L133">      reader = new BufferedReader(new InputStreamReader(s3Object.getObjectContent))</span>
+<span class="fc" id="L134">      reader.readLine.drop(0)</span>
+<span class="pc bpc" id="L135" title="1 of 2 branches missed.">      for (i &lt;- 0 to filelength.toInt - 2) {</span>
+<span class="fc" id="L136">        line = reader.readLine</span>
+<span class="fc" id="L137">        val data = line.split(delimiter)(6).split(&quot;-&quot;)</span>
+<span class="fc" id="L138">        val startTimeLine = data(0).trim</span>
+<span class="fc" id="L139">        val endTimeLine = data(1).trim</span>
+<span class="pc bpc" id="L140" title="1 of 2 branches missed.">        if (!(timeFormateValidation(startTimeLine))) {</span>
+<span class="nc" id="L141">          logger.info(&quot;############################### startTimeLine is not correct ##### :- &quot;)</span>
+<span class="nc" id="L142">          return false</span>
+        }
+<span class="pc bpc" id="L144" title="1 of 2 branches missed.">        if (!(timeFormateValidation(endTimeLine))) {</span>
+<span class="nc" id="L145">          logger.info(&quot;############################### endTimeLine is not correct ##### :- &quot;)</span>
+<span class="nc" id="L146">          return false</span>
+        }
+
+      }
+<span class="fc" id="L150">      logger.info(&quot;########### Time line format is correct  ########### &quot;)</span>
+<span class="fc" id="L151">      true</span>
+    }
+    catch {
+      case exp: FileNotFoundException =&gt;
+<span class="nc" id="L155">        logger.info(&quot;################### file is not present   &quot; + exp)</span>
+<span class="nc" id="L156">        return false</span>
+      case exp: ArrayIndexOutOfBoundsException =&gt;
+<span class="nc" id="L158">        logger.info(&quot;################### Array Index OutOf Bounds Exception  &quot; + exp)</span>
+<span class="nc" id="L159">        return false</span>
+      case exp: NullPointerException =&gt;
+<span class="nc" id="L161">        logger.info(&quot;null pointer  &quot; + exp)</span>
+<span class="nc" id="L162">        return false</span>
+      case exp: NumberFormatException =&gt;
+<span class="nc" id="L164">        logger.info(&quot;shot  is not Numeric&quot; + exp)</span>
+<span class="nc" id="L165">        return false</span>
+
+    }
+  }
+
+<span class="fc" id="L170">  def columnContainBlankValueValidation(awsS3Client: AmazonS3,setup:Setup, filePath: String, columnPosition: Int, delimiter: String = &quot;\t&quot;): Boolean = {</span>
+<span class="fc" id="L171">    val data = UtilsFunction.getColumnFromFile(awsS3Client, &quot;s3://&quot; + setup.bucketName + &quot;/&quot; + filePath, columnPosition)</span>
+<span class="pc bpc" id="L172" title="1 of 2 branches missed.">    if (!(data.contains(&quot;&quot;))) {</span>
+<span class="fc" id="L173">      logger.info(&quot;############################### Column Does not contains blank value ###### &quot;)</span>
+<span class="fc" id="L174">      return true</span>
+    }
+<span class="nc" id="L176">    logger.info(&quot;############################### Column  contains blank value ###### &quot;)</span>
+<span class="nc" id="L177">    false</span>
+  }
+  def versionFormateValidation(date: String): Boolean =
+<span class="pc" id="L180">    try {</span>
+<span class="fc" id="L181">      val df = new SimpleDateFormat(&quot;yyyy_MM_dd&quot;)</span>
+<span class="fc" id="L182">      df.setLenient(false)</span>
+<span class="fc" id="L183">      df.parse(date)</span>
+<span class="fc" id="L184">      true</span>
+    } catch {
+      case e: java.text.ParseException =&gt;
+<span class="nc" id="L187">        logger.info(&quot;version format parsing Exception&quot; + e)</span>
+<span class="nc" id="L188">        false</span>
+    }
+<span class="pc bnc" id="L190" title="All 2 branches missed.">  def CurrentVersionFormatValidation(awsS3Client: AmazonS3,setup:Setup, filePath: String,columnPosition: Int, delimiter: String = &quot;\t&quot;): Boolean = {</span>
+
+<span class="fc" id="L192">    val previousVersionValue=UtilsFunction.getColumnFromFile(awsS3Client,&quot;s3://&quot;+setup.bucketName+&quot;/&quot;+filePath,columnPosition)</span>
+<span class="fc" id="L193">    val data=previousVersionValue.iterator</span>
+<span class="pc bpc" id="L194" title="1 of 2 branches missed.">    for(i &lt;- data)</span>
+    {
+<span class="pc bpc" id="L196" title="1 of 2 branches missed.">      if(!(versionFormateValidation(i)))</span>
+      {
+<span class="nc" id="L198">        logger.info(&quot;############################### current format is not correct ##### :- &quot;)</span>
+<span class="nc" id="L199">        return false</span>
+      }
+
+    }
+
+<span class="fc" id="L204">    true</span>
+  }
+
+<span class="pc bnc" id="L207" title="All 2 branches missed.">  def PreviousVersionFormatValidation(awsS3Client: AmazonS3,setup:Setup, filePath: String,columnPosition: Int, delimiter: String = &quot;\t&quot;): Boolean = {</span>
+
+<span class="fc" id="L209">    val previousVersionValue=UtilsFunction.getColumnFromFile(awsS3Client,&quot;s3://&quot;+setup.bucketName+&quot;/&quot;+filePath,columnPosition)</span>
+<span class="fc" id="L210">    val data=previousVersionValue.iterator</span>
+
+<span class="pc bpc" id="L212" title="1 of 2 branches missed.">    for(i &lt;- data)</span>
+    {
+
+<span class="pc bpc" id="L215" title="1 of 2 branches missed.">      if (!(i.toString().isEmpty())) {</span>
+<span class="nc bnc" id="L216" title="All 2 branches missed.">        if (!(versionFormateValidation(i))) {</span>
+<span class="nc" id="L217">          logger.info(&quot;############################### previous format is not correct ##### :- &quot;+i.toString)</span>
+<span class="nc" id="L218">          return false</span>
+        }
+      }
+      else
+      {
+<span class="fc" id="L223">        logger.info(&quot;############################### previous version is empty  ##### :- &quot;)</span>
+
+      }
+
+    }
+
+<span class="fc" id="L229">    true</span>
+  }
+
+<span class="pc bnc" id="L232" title="All 2 branches missed.">  def previousVersionColumnValueValidation(awsS3Client: AmazonS3,setup:Setup, filePath: String, oldVersionPosition: Int,currentVersionPosition: Int, delimiter: String = &quot;\t&quot;): Boolean = {</span>
+<span class="fc" id="L233">    val previousAndCurrentVersionValue=UtilsFunction.getTwoColumnFromFile(awsS3Client,&quot;s3://&quot;+setup.bucketName+&quot;/&quot;+filePath,oldVersionPosition,currentVersionPosition)</span>
+<span class="fc" id="L234">    previousAndCurrentVersionValue.remove(0)</span>
+<span class="fc" id="L235">    val data=previousAndCurrentVersionValue.iterator</span>
+
+<span class="pc bpc" id="L237" title="1 of 2 branches missed.">    for(i &lt;- data)</span>
+<span class="fc" id="L238">    {</span>
+<span class="fc" id="L239">      val oldVersionData=i._1</span>
+<span class="fc" id="L240">      logger.info(&quot;###### oldVersionData is :-&quot;+i._1)</span>
+<span class="fc" id="L241">      val currentVersionData=i._2</span>
+<span class="fc" id="L242">      logger.info(&quot;###### currentVersionData is :-&quot;+i._2)</span>
+
+<span class="pc bpc" id="L244" title="1 of 2 branches missed.">      if (!(oldVersionData.toString().isEmpty()))</span>
+      {
+<span class="nc bnc" id="L246" title="All 2 branches missed.">        if (oldVersionData.compareTo(currentVersionData) &lt; 0) {</span>
+<span class="nc" id="L247">          logger.info(&quot;############################### previous Version  is less than current Version  ###### &quot;)</span>
+        }
+        else
+<span class="nc" id="L250">          logger.info(&quot;############################### previous Version  is not less than current Version  ###### &quot;)</span>
+<span class="nc" id="L251">        return false</span>
+      }
+      else
+      {
+<span class="fc" id="L255">        logger.info(&quot;############################### previous Version  is empty ###### &quot;)</span>
+      }
+    }
+<span class="fc" id="L258">    logger.info(&quot;############################### previous version value is correct ###### &quot;)</span>
+<span class="fc" id="L259">    true</span>
+  }
+
+<span class="nc bnc" id="L262" title="All 2 branches missed.">  def minorVersionValueFormatValidation(awsS3Client: AmazonS3,setup:Setup,filePath: String, delimiter: String = &quot;\t&quot;): Boolean = {</span>
+<span class="nc" id="L263">    val data = UtilsFunction.getColumnFromFile(awsS3Client, &quot;s3://&quot; + setup.bucketName + &quot;/&quot; + filePath, 8)</span>
+<span class="nc" id="L264">    var p: Pattern = Pattern.compile(&quot;^[0-9]&quot;)</span>
+<span class="nc bnc" id="L265" title="All 2 branches missed.">    for (i &lt;- data) {</span>
+<span class="nc bnc" id="L266" title="All 2 branches missed.">      if (i.startsWith(&quot;v&quot;))</span>
+      {
+<span class="nc" id="L268">        val c = i.slice(1, i.length)</span>
+<span class="nc bnc" id="L269" title="All 2 branches missed.">        if (!(p.matcher(c).find()))</span>
+        {
+<span class="nc" id="L271">          logger.info(&quot;########### minor version format is not correct ########### &quot; + i)</span>
+<span class="nc" id="L272">          return false</span>
+        }
+      }
+      else
+<span class="nc" id="L276">        logger.info(&quot;###############################minor version value not started with v ###### &quot;)</span>
+<span class="nc" id="L277">     return false</span>
+    }
+<span class="nc" id="L279">    true</span>
+  }
+
+<span class="fc" id="L282">  def datasetMetadataFileValueValidationForDataProvider(awsS3Client: AmazonS3,setup:Setup, filePath: String, delimiter: String = &quot;\t&quot;): Boolean =</span>
+<span class="pc bnc" id="L283" title="All 2 branches missed.">  {</span>
+<span class="fc" id="L284">    var dataProvider = &quot;&quot;</span>
+<span class="fc" id="L285">    var datasetMetaDataPath = &quot;&quot;</span>
+<span class="fc" id="L286">    var expectedMetaDataFileName=&quot;&quot;</span>
+<span class="fc" id="L287">    var actualMetaDataFileName=&quot;&quot;</span>
+
+<span class="fc" id="L289">    var lineIterator = UtilsFunction.getLinesFromFile(&quot;s3://&quot; + setup.bucketName + &quot;/&quot; + filePath, awsS3Client)</span>
+<span class="fc" id="L290">    lineIterator.drop(1)</span>
+<span class="pc bpc" id="L291" title="1 of 2 branches missed.">    for (i &lt;- lineIterator)</span>
+<span class="fc" id="L292">    {</span>
+<span class="fc" id="L293">      println(i)</span>
+<span class="fc" id="L294">      dataProvider = i.split(delimiter)(0)</span>
+<span class="fc" id="L295">      datasetMetaDataPath = i.split(delimiter)(11)</span>
+<span class="fc" id="L296">      logger.info(&quot;#### dataProvider :- &quot;+ dataProvider)</span>
+<span class="fc" id="L297">      logger.info(&quot;#### datasetMetaDataPath :- &quot;+ datasetMetaDataPath)</span>
+<span class="fc" id="L298">      expectedMetaDataFileName=dataProvider.toLowerCase+&quot;-&quot;+&quot;metadata.json&quot;</span>
+<span class="fc" id="L299">      actualMetaDataFileName=datasetMetaDataPath</span>
+<span class="pc bpc" id="L300" title="1 of 2 branches missed.">      if(!(expectedMetaDataFileName.equals(actualMetaDataFileName)))</span>
+      {
+<span class="nc" id="L302">        logger.info(&quot;############################### actual dataset metaData file name  is not same as expected dataset metaData file name###### &quot;)</span>
+<span class="nc" id="L303">        return false</span>
+      }
+    }
+<span class="fc" id="L306">    true</span>
+  }
+
+<span class="fc" id="L309">  def datasetDisplayFileValueValidationForDataProvider(awsS3Client: AmazonS3,setup:Setup,filePath: String, delimiter: String = &quot;\t&quot;): Boolean =</span>
+<span class="pc bnc" id="L310" title="All 2 branches missed.">  {</span>
+<span class="fc" id="L311">    var dataProvider = &quot;&quot;</span>
+<span class="fc" id="L312">    var datasetDisplayFilePath = &quot;&quot;</span>
+<span class="fc" id="L313">    var expectedDatasetDisplayFileName=&quot;&quot;</span>
+<span class="fc" id="L314">    var actualDatasetDisplayFileName=&quot;&quot;</span>
+
+<span class="fc" id="L316">    var lineIterator = UtilsFunction.getLinesFromFile(&quot;s3://&quot; + setup.bucketName + &quot;/&quot; + filePath, awsS3Client)</span>
+<span class="fc" id="L317">    lineIterator.drop(1)</span>
+<span class="pc bpc" id="L318" title="1 of 2 branches missed.">    for (i &lt;- lineIterator)</span>
+<span class="fc" id="L319">    {</span>
+<span class="fc" id="L320">      println(i)</span>
+<span class="fc" id="L321">      dataProvider = i.split(delimiter)(0)</span>
+<span class="fc" id="L322">      datasetDisplayFilePath = i.split(delimiter)(10)</span>
+<span class="fc" id="L323">      logger.info(&quot;#### dataProvider :- &quot;+ dataProvider)</span>
+<span class="fc" id="L324">      logger.info(&quot;#### datasetDisplayFilePath :- &quot;+ datasetDisplayFilePath)</span>
+<span class="fc" id="L325">      expectedDatasetDisplayFileName=dataProvider.toLowerCase+&quot;-&quot;+&quot;dataset-display.tsv&quot;</span>
+<span class="fc" id="L326">      actualDatasetDisplayFileName=datasetDisplayFilePath</span>
+<span class="pc bpc" id="L327" title="1 of 2 branches missed.">      if(!(expectedDatasetDisplayFileName.equals(actualDatasetDisplayFileName)))</span>
+      {
+<span class="nc" id="L329">        logger.info(&quot;############################### actual dataset display file is not same as expected dataset display file###### &quot;)</span>
+<span class="nc" id="L330">        return false</span>
+      }
+    }
+<span class="fc" id="L333">    true</span>
+  }
+
+
+<span class="fc" id="L337">  def displayFilePresentForCurrentVersionValidation(awsS3Client: AmazonS3,setup:Setup,filePath: String, delimiter: String = &quot;\t&quot;): Boolean =</span>
+<span class="pc bnc" id="L338" title="All 2 branches missed.">  {</span>
+<span class="fc" id="L339">    var taxonomyPath=&quot;&quot;</span>
+<span class="fc" id="L340">    var currentversion=&quot;&quot;</span>
+<span class="fc" id="L341">    var displayFile=&quot;&quot;</span>
+<span class="fc" id="L342">    var lineIterator = UtilsFunction.getLinesFromFile(&quot;s3://&quot; + setup.bucketName + &quot;/&quot; + filePath, awsS3Client)</span>
+<span class="fc" id="L343">    lineIterator.drop(1)</span>
+<span class="pc bpc" id="L344" title="1 of 2 branches missed.">    for (i &lt;- lineIterator)</span>
+<span class="fc" id="L345">    {</span>
+<span class="fc" id="L346">      println(i)</span>
+<span class="fc" id="L347">      taxonomyPath = i.toString().split(delimiter)(5)</span>
+<span class="fc" id="L348">      currentversion = i.toString().split(delimiter)(8)</span>
+<span class="fc" id="L349">      displayFile = i.toString().split(delimiter)(10)</span>
+
+<span class="fc" id="L351">      logger.info(&quot;#### taxonomyPath :-&quot; + taxonomyPath)</span>
+<span class="fc" id="L352">      logger.info(&quot;#### currentVersion :-&quot; + currentversion)</span>
+<span class="fc" id="L353">      logger.info(&quot;#### displayFile :- &quot; + displayFile)</span>
+
+<span class="fc" id="L355">      val displayFilepath = setup.displayFilePath(taxonomyPath, currentversion, displayFile)</span>
+<span class="pc bpc" id="L356" title="1 of 2 branches missed.">      if (!(UtilsFunction.filePresentInS3(&quot;s3://&quot; + setup.bucketName + displayFilepath, awsS3Client)))</span>
+<span class="nc" id="L357">       return false</span>
+    }
+<span class="fc" id="L359">    true</span>
+  }
+
+<span class="fc" id="L362">  def datasetMetaDataFilePresentForCurrentVersionValidation(awsS3Client: AmazonS3,setup:Setup, filePath: String, delimiter: String = &quot;\t&quot;): Boolean =</span>
+<span class="pc bnc" id="L363" title="All 2 branches missed.">  {</span>
+<span class="fc" id="L364">    var  metaDataSourcePath=&quot;&quot;</span>
+<span class="fc" id="L365">    var CurrentVersion=&quot;&quot;</span>
+<span class="fc" id="L366">    var metaDataFile=&quot;&quot;</span>
+
+<span class="fc" id="L368">    var lineIterator = UtilsFunction.getLinesFromFile(&quot;s3://&quot; + setup.bucketName + &quot;/&quot; + filePath, awsS3Client)</span>
+<span class="fc" id="L369">    lineIterator.drop(1)</span>
+<span class="pc bpc" id="L370" title="1 of 2 branches missed.">    for (i &lt;- lineIterator) {</span>
+<span class="fc" id="L371">      metaDataSourcePath = i.toString().split(delimiter)(4)</span>
+<span class="fc" id="L372">      CurrentVersion = i.toString().split(delimiter)(8)</span>
+<span class="fc" id="L373">      metaDataFile = i.toString().split(delimiter)(11)</span>
+
+<span class="fc" id="L375">      logger.info(&quot;#### metaDataSourcePath :- &quot; + metaDataSourcePath)</span>
+<span class="fc" id="L376">      logger.info(&quot;#### CurrentVersion :- &quot; + CurrentVersion)</span>
+<span class="fc" id="L377">      logger.info(&quot;#### datasetMetaDataFile :- &quot; + metaDataFile)</span>
+
+<span class="fc" id="L379">      val metaDataFilepath = setup.datasetMetaDataFilePath(metaDataSourcePath,CurrentVersion, metaDataFile)</span>
+<span class="fc" id="L380">      logger.info(&quot;metaDataFilepath :- &quot; + metaDataFilepath)</span>
+<span class="pc bpc" id="L381" title="1 of 2 branches missed.">      if (!(UtilsFunction.filePresentInS3(&quot;s3://&quot; + setup.bucketName + metaDataFilepath, awsS3Client)))</span>
+<span class="nc" id="L382">       return false</span>
+
+    }
+<span class="fc" id="L385">    true</span>
+  }
+
+<span class="fc" id="L388">  def validation(marketName: String,</span>
+                 bucket: String,
+                 dataProviderName: String,
+                 matchingPartnerName: String,
+<span class="pc bnc" id="L392" title="All 2 branches missed.">                 thread_count: Int = 1,delimiter: String = &quot;\t&quot;): Boolean = {</span>
+<span class="fc" id="L393">    val setup = new Setup(marketName, bucket, dataProviderName, matchingPartnerName)</span>
+<span class="fc" id="L394">    val awsS3Client = setup.awsS3Client</span>
+<span class="fc" id="L395">    val pColumns = FileData.matchingPartnerGetData(awsS3Client, setup)</span>
+<span class="nc" id="L396">    try{</span>
+<span class="pc bpc" id="L397" title="2 of 4 branches missed.">      pColumns.foreach(matchingPartnerData=&gt; if(!(headerValidation(awsS3Client,setup,setup.metaDataFilePath(matchingPartnerData(1).asInstanceOf[Array[String]](2))))){</span>
+<span class="nc" id="L398">        logger.info(</span>
+<span class="nc" id="L399">          &quot;-----------------headerValidation is not correct---------------------&quot;)</span>
+<span class="nc" id="L400">        return false</span>
+      })
+<span class="pc bpc" id="L402" title="2 of 4 branches missed.">      pColumns.foreach(matchingPartnerData=&gt;if(!(specialCharacterValidation(awsS3Client,setup,setup.metaDataFilePath(matchingPartnerData(1).asInstanceOf[Array[String]](2))))){</span>
+<span class="nc" id="L403">        logger.info(&quot;-----------------specialCharacterValidation is not correct---------------------&quot;)</span>
+<span class="nc" id="L404">        return false</span>
+      })
+<span class="pc bpc" id="L406" title="2 of 4 branches missed.">      pColumns.foreach(matchingPartnerData=&gt;if(!(timeLineValueValidation(awsS3Client,setup,setup.metaDataFilePath(matchingPartnerData(1).asInstanceOf[Array[String]](2))))){</span>
+<span class="nc" id="L407">        logger.info(&quot;-----------------timeLineValueValidation is not correct---------------------&quot;)</span>
+<span class="nc" id="L408">        return false</span>
+      })
+<span class="pc bpc" id="L410" title="2 of 4 branches missed.">      pColumns.foreach(matchingPartnerData=&gt;if(!(columnContainBlankValueValidation(awsS3Client,setup,setup.metaDataFilePath(matchingPartnerData(1).asInstanceOf[Array[String]](2)),3))){</span>
+<span class="nc" id="L411">        logger.info(&quot;-----------------dataSetTypeValueValidation is not correct---------------------&quot;)</span>
+<span class="nc" id="L412">        return false</span>
+      })
+<span class="pc bpc" id="L414" title="2 of 4 branches missed.">      pColumns.foreach(matchingPartnerData=&gt;if(!(columnContainBlankValueValidation(awsS3Client,setup,setup.metaDataFilePath(matchingPartnerData(1).asInstanceOf[Array[String]](2)),4))){</span>
+<span class="nc" id="L415">        logger.info(&quot;-----------------metadataSourceRootPathValueValidation is not correct---------------------&quot;)</span>
+<span class="nc" id="L416">        return false</span>
+      })
+<span class="pc bpc" id="L418" title="2 of 4 branches missed.">      pColumns.foreach(matchingPartnerData=&gt;if(!(columnContainBlankValueValidation(awsS3Client,setup,setup.metaDataFilePath(matchingPartnerData(1).asInstanceOf[Array[String]](2)),5))){</span>
+<span class="nc" id="L419">        logger.info(&quot;-----------------taxonomyRootPathValueValidation is not correct---------------------&quot;)</span>
+<span class="nc" id="L420">        return false</span>
+      })
+<span class="pc bpc" id="L422" title="2 of 4 branches missed.">      pColumns.foreach(matchingPartnerData=&gt;if(!(PreviousVersionFormatValidation(awsS3Client,setup,setup.metaDataFilePath(matchingPartnerData(1).asInstanceOf[Array[String]](2)),7))){</span>
+<span class="nc" id="L423">        logger.info(&quot;-----------------previous version format Validation  is not correct---------------------&quot;)</span>
+<span class="nc" id="L424">        return false</span>
+      })
+<span class="pc bpc" id="L426" title="2 of 4 branches missed.">      pColumns.foreach(matchingPartnerData=&gt;if(!(CurrentVersionFormatValidation(awsS3Client,setup,setup.metaDataFilePath(matchingPartnerData(1).asInstanceOf[Array[String]](2)),8))){</span>
+<span class="nc" id="L427">        logger.info(&quot;-----------------current version format Validation  is not correct---------------------&quot;)</span>
+<span class="nc" id="L428">        return false</span>
+      })
+<span class="pc bpc" id="L430" title="2 of 4 branches missed.">      pColumns.foreach(matchingPartnerData=&gt;if(!(previousVersionColumnValueValidation(awsS3Client,setup,setup.metaDataFilePath(matchingPartnerData(1).asInstanceOf[Array[String]](2)),7,8))){</span>
+<span class="nc" id="L431">        logger.info(&quot;-----------------previousVersionColumnValueValidation  is not correct---------------------&quot;)</span>
+<span class="nc" id="L432">        return false</span>
+      })
+<span class="pc bpc" id="L434" title="2 of 4 branches missed.">      pColumns.foreach(matchingPartnerData=&gt;if(!(columnContainBlankValueValidation(awsS3Client,setup,setup.metaDataFilePath(matchingPartnerData(1).asInstanceOf[Array[String]](2)),8))){</span>
+<span class="nc" id="L435">        logger.info(&quot;-----------------Current version column contains blank value ---------------------&quot;)</span>
+<span class="nc" id="L436">        return false</span>
+      })
+<span class="pc bpc" id="L438" title="2 of 4 branches missed.">      pColumns.foreach(matchingPartnerData=&gt;if(!(columnContainBlankValueValidation(awsS3Client,setup,setup.metaDataFilePath(matchingPartnerData(1).asInstanceOf[Array[String]](2)),9))){</span>
+<span class="nc" id="L439">        logger.info(&quot;-----------------minor version column contains blank value ---------------------&quot;)</span>
+<span class="nc" id="L440">        return false</span>
+      })
+<span class="pc bpc" id="L442" title="2 of 4 branches missed.">      pColumns.foreach(matchingPartnerData=&gt;if(!(columnContainBlankValueValidation(awsS3Client,setup,setup.metaDataFilePath(matchingPartnerData(1).asInstanceOf[Array[String]](2)),10))){</span>
+<span class="nc" id="L443">        logger.info(&quot;-----------------datasetDisplayFile column contains blank value ---------------------&quot;)</span>
+<span class="nc" id="L444">        return false</span>
+      })
+<span class="pc bpc" id="L446" title="2 of 4 branches missed.">      pColumns.foreach(matchingPartnerData=&gt;if(!(columnContainBlankValueValidation(awsS3Client,setup,setup.metaDataFilePath(matchingPartnerData(1).asInstanceOf[Array[String]](2)),11))){</span>
+<span class="nc" id="L447">        logger.info(&quot;-----------------datasetMetadataFile column contains blank value ---------------------&quot;)</span>
+<span class="nc" id="L448">        return false</span>
+      })
+<span class="pc bpc" id="L450" title="2 of 4 branches missed.">      pColumns.foreach(matchingPartnerData=&gt;if(!(datasetMetadataFileValueValidationForDataProvider(awsS3Client,setup,setup.metaDataFilePath(matchingPartnerData(1).asInstanceOf[Array[String]](2))))){</span>
+<span class="nc" id="L451">        logger.info(&quot;-----------------datasetMetadataFileValueValidationForDataProvider validation failed ---------------------&quot;)</span>
+<span class="nc" id="L452">        return false</span>
+      })
+<span class="pc bpc" id="L454" title="2 of 4 branches missed.">      pColumns.foreach(matchingPartnerData=&gt;if(!(datasetDisplayFileValueValidationForDataProvider(awsS3Client,setup,setup.metaDataFilePath(matchingPartnerData(1).asInstanceOf[Array[String]](2))))){</span>
+<span class="nc" id="L455">        logger.info(&quot;-----------------datasetDisplayFileValueValidationForDataProvider validation failed ---------------------&quot;)</span>
+<span class="nc" id="L456">        return false</span>
+      })
+<span class="pc bpc" id="L458" title="2 of 4 branches missed.">      pColumns.foreach(matchingPartnerData=&gt;if(!(displayFilePresentForCurrentVersionValidation(awsS3Client,setup,setup.metaDataFilePath(matchingPartnerData(1).asInstanceOf[Array[String]](2))))){</span>
+<span class="nc" id="L459">        logger.info(&quot;-----------------displayFilePresentForCurrentVersionValidation validation failed ---------------------&quot;)</span>
+<span class="nc" id="L460">        return false</span>
+      })
+<span class="pc bpc" id="L462" title="2 of 4 branches missed.">      pColumns.foreach(matchingPartnerData=&gt;if(!(datasetMetaDataFilePresentForCurrentVersionValidation(awsS3Client,setup,setup.metaDataFilePath(matchingPartnerData(1).asInstanceOf[Array[String]](2))))){</span>
+<span class="nc" id="L463">        logger.info(&quot;-----------------datasetMetaDataFilePresentForCurrentVersionValidation validation failed ---------------------&quot;)</span>
+<span class="nc" id="L464">        return false</span>
+      })
+<span class="fc" id="L466">      true</span>
+    }
+    catch{
+      case e:ArrayIndexOutOfBoundsException=&gt;return false
+      case  ie:Exception=&gt; return false  }
+
+  }
+<span class="fc" id="L473">  override def run(args: JSONObject): Unit = {</span>
+
+<span class="fc" id="L475">    val marketName = args.getString(&quot;marketName&quot;)</span>
+<span class="fc" id="L476">    val bucket = args.getString(&quot;bucket&quot;)</span>
+<span class="fc" id="L477">    val dataProviderName = args.getString(&quot;dataProviderName&quot;)</span>
+<span class="fc" id="L478">    val matchingPartnerName = args.getString(&quot;matchingPartnerName&quot;)</span>
+<span class="fc" id="L479">    val thread_count = args.getOrElse[Int](&quot;thread_count&quot;, 1)</span>
+
+<span class="pc bpc" id="L481" title="1 of 2 branches missed.">    if(!validation(marketName,bucket,dataProviderName,matchingPartnerName,thread_count))</span>
+    {
+<span class="nc" id="L483">      throw new RuntimeException(&quot;-----------------metaData File validation failed ---------------------&quot;)</span>
+    }
+
+  }
+}
+
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

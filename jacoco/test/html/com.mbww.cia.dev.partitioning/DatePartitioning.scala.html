@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DatePartitioning.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.partitioning</a> &gt; <span class="el_source">DatePartitioning.scala</span></div><h1>DatePartitioning.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.partitioning
+
+import com.mbww.cia.common.Spark._
+import com.mbww.cia.common.{Module, _}
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.{ SaveMode}
+import org.json.JSONObject
+
+
+<span class="fc" id="L10">class DatePartitioning extends Module {</span>
+
+  def generate(inputDataPath: String,
+               inputDateColumn: String,
+               inputDateFormat: String,
+               outputPartitionColumns: Seq[String],
+               outputPath: String,
+               writeMode: String): Unit = {
+
+<span class="fc" id="L19">    val inputDataframe = spark.read.parquet(inputDataPath)</span>
+<span class="fc" id="L20">      .withColumn(&quot;tmpDate&quot;, to_date(col(inputDateColumn), inputDateFormat))</span>
+
+<span class="fc" id="L22">    val opts = Map(&quot;year&quot; -&gt; year(col(&quot;tmpDate&quot;)),</span>
+<span class="fc" id="L23">      &quot;month&quot; -&gt; dayMonthPlus0Udf(month(col(&quot;tmpDate&quot;))),</span>
+<span class="fc" id="L24">      &quot;day&quot; -&gt; dayMonthPlus0Udf(dayofmonth(col(&quot;tmpDate&quot;))))</span>
+
+<span class="fc" id="L26">    val ans = outputPartitionColumns.foldLeft(inputDataframe)((acc, v) =&gt; acc.withColumn(v, opts(v)))</span>
+
+<span class="fc" id="L28">    val chosenWriteMode = writeMode match {</span>
+<span class="pc bpc" id="L29" title="1 of 2 branches missed.">      case &quot;Overwrite&quot; =&gt; SaveMode.Overwrite</span>
+<span class="nc bnc" id="L30" title="All 2 branches missed.">      case &quot;Append&quot; =&gt; SaveMode.Append</span>
+<span class="nc bnc" id="L31" title="All 2 branches missed.">      case &quot;ErrorIfExists&quot; =&gt; SaveMode.ErrorIfExists</span>
+<span class="nc" id="L32">      case _ =&gt; SaveMode.Overwrite</span>
+    }
+
+<span class="fc" id="L35">    ans.drop(&quot;tmpDate&quot;)</span>
+<span class="fc" id="L36">      .write</span>
+<span class="fc" id="L37">      .partitionBy(outputPartitionColumns: _*)</span>
+<span class="fc" id="L38">      .mode(chosenWriteMode)</span>
+<span class="fc" id="L39">      .option(&quot;mapreduce.fileoutputcommitter.algorithm.version&quot;, &quot;2&quot;)</span>
+<span class="fc" id="L40">      .parquet(outputPath)</span>
+  }
+
+<span class="fc" id="L43">  val dayMonthPlus0Udf = udf(dayMonthPlus0)</span>
+
+<span class="fc" id="L45">  def dayMonthPlus0: (String =&gt; String) = (i: String) =&gt; {</span>
+<span class="pc bpc" id="L46" title="1 of 2 branches missed.">    if (i.toInt &lt; 10) &quot;0&quot;.concat(i.toString) else i.toString</span>
+  }
+
+  override def run(args: JSONObject): Unit = {
+<span class="fc" id="L50">    val inputDataPath = args.getString(&quot;input_path&quot;)</span>
+<span class="fc" id="L51">    val inputDateColumn = args.getString(&quot;input_date_column&quot;)</span>
+<span class="fc" id="L52">    val inputDateFormat = args.getString(&quot;input_date_format&quot;)</span>
+<span class="fc" id="L53">    val outputPartitionColumns = args.getSeq[String](&quot;output_partition_columns&quot;)</span>
+<span class="fc" id="L54">    val outputPath = args.getString(&quot;output_path&quot;)</span>
+<span class="fc" id="L55">    val writeMode = args.getOrElse[String](&quot;write_mode&quot;,&quot;Overwrite&quot;)</span>
+<span class="fc" id="L56">    generate(inputDataPath, inputDateColumn, inputDateFormat, outputPartitionColumns, outputPath, writeMode)</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Acxiom.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.denormalizer</a> &gt; <span class="el_source">Acxiom.scala</span></div><h1>Acxiom.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.denormalizer
+
+import com.mbww.cia.common.Spark._
+import com.mbww.cia.common.{Module, _}
+import org.apache.hadoop.fs.Path
+import org.apache.spark.sql.functions.col
+import org.apache.spark.sql.{DataFrame, SaveMode}
+import org.apache.spark.storage.StorageLevel
+import org.json.JSONObject
+
+import scala.collection.parallel.ForkJoinTaskSupport
+import scala.concurrent.forkjoin
+
+<span class="nc" id="L14">class Acxiom extends Module {</span>
+
+<span class="nc bnc" id="L16" title="All 37 branches missed.">  case class OutputInfo(outputColumns: Seq[String], outputPath: String)</span>
+
+  def denormalizeWithPivoting(acxiom: DataFrame,
+                              outputColumns: Seq[String],
+                              filterExpr: String,
+                              attributeId: String,
+                              dropColumns: Seq[String],
+                              caseType:String,
+                              outputPath: String,
+<span class="nc" id="L25">                              threadCount: Int = 1): Unit = {</span>
+
+<span class="nc" id="L27">    val fileSystem = getFileSystem(outputPath)</span>
+
+<span class="nc" id="L29">    acxiom.drop(dropColumns: _*).columns.foreach(c =&gt; {</span>
+<span class="nc" id="L30">      val values = acxiom</span>
+<span class="nc" id="L31">        .uniques(col(c))</span>
+<span class="nc" id="L32">        .collect</span>
+<span class="nc" id="L33">        .map(r =&gt; r.get(0))</span>
+
+<span class="nc" id="L35">      val pValues = values.par</span>
+<span class="nc" id="L36">      pValues.tasksupport = new ForkJoinTaskSupport(new forkjoin.ForkJoinPool(threadCount))</span>
+<span class="nc bnc" id="L37" title="All 2 branches missed.">      pValues.foreach(v =&gt; {</span>
+<span class="nc" id="L38">        val attributeName =</span>
+<span class="nc bnc" id="L39" title="All 6 branches missed.">        if (caseType ==&quot;LOWER&quot;){</span>
+<span class="nc" id="L40">          s&quot;${c}_${v}&quot;.replaceAll(&quot; &quot;,&quot;_&quot;).toLowerCase</span>
+        }
+<span class="nc bnc" id="L42" title="All 6 branches missed.">        else if (caseType ==&quot;UPPER&quot;){</span>
+<span class="nc" id="L43">          s&quot;${c}_${v}&quot;.replaceAll(&quot; &quot;,&quot;_&quot;).toUpperCase</span>
+        }
+        else {
+<span class="nc" id="L46">          s&quot;${c}_${v}&quot;.replaceAll(&quot; &quot;,&quot;_&quot;)</span>
+        }
+<span class="nc" id="L48">        val outputAttribute = concatToPath(outputPath, s&quot;$attributeId=$attributeName&quot;)</span>
+
+<span class="nc bnc" id="L50" title="All 2 branches missed.">        if (!fileSystem.exists(new Path(concatToPath(outputAttribute, &quot;_SUCCESS&quot;)))) {</span>
+<span class="nc" id="L51">          acxiom</span>
+<span class="nc" id="L52">            .filter(acxiom(c) === v)</span>
+<span class="nc" id="L53">            .select(outputColumns.map(c =&gt; col(c)): _*)</span>
+<span class="nc" id="L54">            .write</span>
+<span class="nc" id="L55">            .mode(SaveMode.Overwrite)</span>
+<span class="nc" id="L56">            .option(&quot;mapreduce.fileoutputcommitter.algorithm.version&quot;, &quot;2&quot;)</span>
+<span class="nc" id="L57">            .parquet(outputAttribute)</span>
+        }
+      })
+    })
+  }
+
+  def denormalizeWithoutPivoting(acxiom: DataFrame,
+                                 outputColumns: Seq[String],
+                                 filterExpr: String,
+                                 attributeId: String,
+                                 dropColumns: Seq[String],
+                                 caseType:String,
+                                 outputPath: String,
+<span class="nc" id="L70">                                 threadCount: Int = 1): Unit = {</span>
+
+<span class="nc" id="L72">    val fileSystem = getFileSystem(outputPath)</span>
+
+<span class="nc" id="L74">    val columns = acxiom.drop(dropColumns: _*).columns</span>
+<span class="nc" id="L75">    val pColumns = columns.par</span>
+<span class="nc" id="L76">    pColumns.tasksupport = new ForkJoinTaskSupport(new forkjoin.ForkJoinPool(threadCount))</span>
+<span class="nc" id="L77">    pColumns.foreach(c =&gt; {</span>
+<span class="nc" id="L78">      val outputAttribute = concatToPath(outputPath, s&quot;$attributeId=$c&quot;)</span>
+
+<span class="nc bnc" id="L80" title="All 2 branches missed.">      if (!fileSystem.exists(new Path(concatToPath(outputAttribute, &quot;_SUCCESS&quot;)))) {</span>
+<span class="nc" id="L81">        acxiom</span>
+<span class="nc" id="L82">          .filter(acxiom(c) === &quot;1&quot;)</span>
+<span class="nc" id="L83">          .select(outputColumns.map(c =&gt; col(c)): _*)</span>
+<span class="nc" id="L84">          .write</span>
+<span class="nc" id="L85">          .mode(SaveMode.Overwrite)</span>
+<span class="nc" id="L86">          .option(&quot;mapreduce.fileoutputcommitter.algorithm.version&quot;, &quot;2&quot;)</span>
+<span class="nc" id="L87">          .parquet(outputAttribute)</span>
+      }
+    })
+  }
+
+  def generateDenormalized(acxiomPath: String,
+                           outputInfo: OutputInfo,
+                           filterExpr: String,
+                           attributeId: String,
+                           dropColumns: Seq[String],
+                           caseType: String,
+                           pivotValues: Boolean,
+<span class="nc" id="L99">                           threadCount: Int = 1): Unit = {</span>
+
+<span class="nc bnc" id="L101" title="All 2 branches missed.">    val acxiom = if (!filterExpr.isEmpty) {</span>
+<span class="nc" id="L102">      spark.read.parquet(acxiomPath).filter(filterExpr).persist(StorageLevel.MEMORY_AND_DISK)</span>
+    } else {
+<span class="nc" id="L104">      spark.read.parquet(acxiomPath)</span>
+    }
+
+<span class="nc bnc" id="L107" title="All 2 branches missed.">    if (pivotValues) {</span>
+<span class="nc" id="L108">      denormalizeWithPivoting(</span>
+<span class="nc" id="L109">        acxiom,</span>
+<span class="nc" id="L110">        outputInfo.outputColumns,</span>
+<span class="nc" id="L111">        filterExpr,</span>
+<span class="nc" id="L112">        attributeId,</span>
+<span class="nc" id="L113">        dropColumns,</span>
+<span class="nc" id="L114">        caseType,</span>
+<span class="nc" id="L115">        outputInfo.outputPath,</span>
+<span class="nc" id="L116">        threadCount)</span>
+    } else {
+<span class="nc" id="L118">      denormalizeWithoutPivoting(</span>
+<span class="nc" id="L119">        acxiom,</span>
+<span class="nc" id="L120">        outputInfo.outputColumns,</span>
+<span class="nc" id="L121">        filterExpr,</span>
+<span class="nc" id="L122">        attributeId,</span>
+<span class="nc" id="L123">        dropColumns,</span>
+<span class="nc" id="L124">        caseType,</span>
+<span class="nc" id="L125">        outputInfo.outputPath,</span>
+<span class="nc" id="L126">        threadCount)</span>
+    }
+  }
+
+  def generate(acxiomPaths: Seq[String],
+               outputInfo: OutputInfo,
+               filterExpr: String,
+               attributeId: String,
+               pivotValues: Boolean,
+               dropColumns: Seq[String],
+               caseType:String,
+<span class="nc" id="L137">               threadCount: Int = 1): Unit = {</span>
+
+<span class="nc bnc" id="L139" title="All 2 branches missed.">    acxiomPaths.foreach(acxiomPath =&gt; {</span>
+<span class="nc" id="L140">      generateDenormalized(</span>
+<span class="nc" id="L141">        acxiomPath,</span>
+<span class="nc" id="L142">        outputInfo,</span>
+<span class="nc" id="L143">        filterExpr,</span>
+<span class="nc" id="L144">        attributeId,</span>
+<span class="nc" id="L145">        dropColumns,</span>
+<span class="nc" id="L146">        caseType,</span>
+<span class="nc" id="L147">        pivotValues,</span>
+<span class="nc" id="L148">        threadCount)</span>
+    })
+  }
+
+
+
+  override def run(args: JSONObject): Unit = {
+
+<span class="nc" id="L156">    val acxiomPaths = args.getSeq[String](&quot;acxiom_paths&quot;)</span>
+<span class="nc" id="L157">    val outputColumns = args.getSeq[String](&quot;output_columns&quot;)</span>
+<span class="nc" id="L158">    val outputPath = args.getString(&quot;output_path&quot;)</span>
+<span class="nc" id="L159">    val acxiomFilterExpr = args.getString(&quot;acxiom_filter_expr&quot;)</span>
+<span class="nc" id="L160">    val partitionAttributeId = args.getString(&quot;partition_attribute_id&quot;)</span>
+<span class="nc" id="L161">    val pivotValues = args.getBoolean(&quot;pivot_values&quot;)</span>
+<span class="nc" id="L162">    val dropColumns = args.getSeq[String](&quot;drop_columns&quot;)</span>
+<span class="nc" id="L163">    val caseType = args.getOrElse[String](&quot;case_type&quot;,&quot; &quot;)</span>
+<span class="nc" id="L164">    val threadCount = args.getOrElse[Int](&quot;thread_count&quot;, 1)</span>
+
+<span class="nc" id="L166">    val outputInfo =  OutputInfo(outputColumns,outputPath)</span>
+
+<span class="nc" id="L168">    generate(</span>
+<span class="nc" id="L169">      acxiomPaths,</span>
+<span class="nc" id="L170">      outputInfo,</span>
+<span class="nc" id="L171">      acxiomFilterExpr,</span>
+<span class="nc" id="L172">      partitionAttributeId,</span>
+<span class="nc" id="L173">      pivotValues,</span>
+<span class="nc" id="L174">      dropColumns,</span>
+<span class="nc" id="L175">      caseType,</span>
+<span class="nc" id="L176">      threadCount)</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

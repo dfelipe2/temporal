@@ -1,0 +1,233 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Simmons.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.es.denormalizer</a> &gt; <span class="el_source">Simmons.scala</span></div><h1>Simmons.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.es.denormalizer
+
+import com.mbww.cia.common.Spark.spark
+import com.mbww.cia.common.{Module, _}
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.json.JSONObject
+import org.slf4j.{Logger, LoggerFactory}
+
+/**
+  * Simmons Deormalization Parameters.
+  *
+  * It represents the parameters to execut a
+  * debormalization process for simmons dataset.
+  *
+  * @param inputPath for simmons data
+  * @param crosswalkPath for simmons data
+  * @param numericIdsPath for simmons data
+  * @param attributeColumn to process
+  * @param outputPath where to put the results
+  * @param writePartitions number of partitions to write data.
+  */
+<span class="pc bnc" id="L23" title="All 65 branches missed.">case class SimmonsDenormParams(inputPath: String,</span>
+<span class="fc" id="L24">                               crosswalkPath: String,</span>
+<span class="fc" id="L25">                               numericIdsPath: String,</span>
+<span class="fc" id="L26">                               attributeColumn: String,</span>
+<span class="fc" id="L27">                               outputPath: String,</span>
+<span class="pc" id="L28">                               writePartitions: Int = 200,</span>
+<span class="pc" id="L29">                               joinColumns: JoinColumns = JoinColumns(),</span>
+<span class="pc" id="L30">                               punchPartFilters: Seq[Int] = Seq.empty[Int]) {</span>
+
+<span class="fc" id="L32">  val logger: Logger = LoggerFactory.getLogger(this.getClass)</span>
+
+  def withWritePartitions(value: Int): SimmonsDenormParams = {
+<span class="pc bpc" id="L35" title="1 of 2 branches missed.">    if (value &gt; 0)</span>
+<span class="fc" id="L36">      this.copy(writePartitions = value)</span>
+    else
+<span class="nc" id="L38">      this</span>
+  }
+
+<span class="fc" id="L41">  def withJoinColumns(value: JoinColumns): SimmonsDenormParams = this.copy(joinColumns = value)</span>
+<span class="nc" id="L42">  def withPunchPartFilters(value: Seq[Int]): SimmonsDenormParams = this.copy(punchPartFilters = value)</span>
+  def withPunchPartFilters(value: String): SimmonsDenormParams = {
+<span class="fc bfc" id="L44" title="All 2 branches covered.">    if (value.trim.contains(&quot;-&quot;)){</span>
+<span class="pc" id="L45">      value.split(&quot;-&quot;).map(_.toInt) match {</span>
+<span class="pc bpc" id="L46" title="3 of 6 branches missed.">        case Array(start, end) =&gt;</span>
+<span class="fc" id="L47">          val parts = start to end</span>
+<span class="fc" id="L48">          this.copy(punchPartFilters = parts)</span>
+      }
+<span class="fc bfc" id="L50" title="All 2 branches covered.">    } else if (value.trim.contains(&quot;,&quot;)) {</span>
+<span class="fc" id="L51">      this.copy(punchPartFilters = value.split(&quot;,&quot;).map(_.trim.toInt).toSeq)</span>
+<span class="fc bfc" id="L52" title="All 2 branches covered.">    } else if (value.trim.matches(&quot;\\d+&quot;)) {</span>
+<span class="fc" id="L53">      this.copy(punchPartFilters = Seq(value.trim.toInt))</span>
+    }else {
+<span class="fc" id="L55">      logger.warn(s&quot;'$value' is not a valid punch part filter string. No filters will be used.&quot;)</span>
+<span class="fc" id="L56">      this</span>
+    }
+  }
+}
+
+<span class="pc bnc" id="L61" title="All 48 branches missed.">case class JoinColumns(simmons2crosswalk: String = &quot;simmons_panelist_id&quot;,</span>
+<span class="pc" id="L62">                       crosswalk2simmons: String = &quot;simmons_panelist_id&quot;,</span>
+<span class="pc" id="L63">                       crosswalk2numids: String = &quot;consumer_pel&quot;,</span>
+<span class="pc" id="L64">                       numids2crosswalk: String = &quot;mbid_value&quot;,</span>
+<span class="pc" id="L65">                       householdIdColumn: String = &quot;hhid_value&quot;) {</span>
+
+  def withSimmons2Crosswalk(value: String): JoinColumns = {
+<span class="pc bpc" id="L68" title="1 of 2 branches missed.">    if (value.nonEmpty)</span>
+<span class="fc" id="L69">      this.copy(simmons2crosswalk = value)</span>
+    else
+<span class="nc" id="L71">      this</span>
+  }
+  def withCrosswalk2Simmons(value: String): JoinColumns = {
+<span class="pc bpc" id="L74" title="1 of 2 branches missed.">    if (value.nonEmpty)</span>
+<span class="fc" id="L75">      this.copy(crosswalk2simmons = value)</span>
+    else
+<span class="nc" id="L77">      this</span>
+  }
+  def withCrosswalk2Numids(value: String): JoinColumns = {
+<span class="pc bpc" id="L80" title="1 of 2 branches missed.">    if (value.nonEmpty)</span>
+<span class="fc" id="L81">      this.copy(crosswalk2numids = value)</span>
+    else
+<span class="nc" id="L83">      this</span>
+  }
+  def withNumids2Crosswalk(value: String): JoinColumns = {
+<span class="pc bpc" id="L86" title="1 of 2 branches missed.">    if (value.nonEmpty)</span>
+<span class="fc" id="L87">      this.copy(numids2crosswalk = value)</span>
+    else
+<span class="nc" id="L89">      this</span>
+  }
+
+  def withHouseholdIdColumn(value: String): JoinColumns = {
+<span class="pc bpc" id="L93" title="1 of 2 branches missed.">    if (value.nonEmpty)</span>
+<span class="fc" id="L94">      this.copy(householdIdColumn = value)</span>
+    else
+<span class="nc" id="L96">      this</span>
+  }
+}
+
+/**
+  * Simmons Denormalizer.
+  *
+  * This class contains the necessary logic to transform
+  * the original simmons data into mbid, hhid, and attribute
+  * format.
+  */
+<span class="fc" id="L107">class Simmons extends Module {</span>
+
+<span class="fc" id="L109">  val logger: Logger = LoggerFactory.getLogger(this.getClass)</span>
+<span class="fc" id="L110">  val sparkSession: SparkSession = spark</span>
+  import sparkSession.implicits._
+
+  private def process(params: SimmonsDenormParams): Unit = {
+<span class="fc" id="L114">    logger.info(&quot;Loading datasets&quot;)</span>
+<span class="fc" id="L115">    val simmons = getSimmonsData(params.inputPath,</span>
+<span class="fc" id="L116">      params.attributeColumn, params.joinColumns, params.punchPartFilters)</span>
+<span class="fc" id="L117">    val crosswalk = getCrosswalkData(params.crosswalkPath, params.joinColumns)</span>
+<span class="fc" id="L118">    val numericIds = getNumericIds(params.numericIdsPath, params.joinColumns)</span>
+
+<span class="fc" id="L120">    logger.info(&quot;Joining crosswalk and numeric ids&quot;)</span>
+<span class="fc" id="L121">    val crossJoinNumeric = joinCrosswalkAndNumericIds(crosswalk,</span>
+<span class="fc" id="L122">      numericIds,</span>
+<span class="fc" id="L123">      params.joinColumns)</span>
+
+<span class="fc" id="L125">    logger.info(&quot;Process and save the data&quot;)</span>
+<span class="fc" id="L126">    processPunchBatches(simmons,</span>
+<span class="fc" id="L127">      crossJoinNumeric,</span>
+<span class="fc" id="L128">      params.outputPath,</span>
+<span class="fc" id="L129">      params)</span>
+  }
+
+  private def getSimmonsData(input: String,
+                             attributeColumn: String,
+                             joinColumns: JoinColumns,
+<span class="fc" id="L135">                             punchPartFilters: Seq[Int]): DataFrame = {</span>
+<span class="fc" id="L136">    logger.info(&quot;Loading simmons data and generating index by first punch code segment.&quot;)</span>
+<span class="fc" id="L137">    val data = spark.read.parquet(input).select(col(joinColumns.simmons2crosswalk),</span>
+<span class="fc" id="L138">      col(attributeColumn),</span>
+<span class="fc" id="L139">      split(col(attributeColumn), &quot;\\.&quot;)(0).as(&quot;punch_part&quot;))</span>
+
+<span class="fc bfc" id="L141" title="All 2 branches covered.">    if (punchPartFilters.nonEmpty)</span>
+<span class="fc" id="L142">      data.filter($&quot;punch_part&quot;.isin(punchPartFilters:_*))</span>
+    else
+<span class="fc" id="L144">      data</span>
+  }
+
+  private def getCrosswalkData(input: String, joinColumns: JoinColumns): DataFrame = {
+<span class="fc" id="L148">    spark.read.parquet(input).select(col(joinColumns.crosswalk2numids),</span>
+<span class="fc" id="L149">      col(joinColumns.simmons2crosswalk))</span>
+  }
+
+  private def getNumericIds(input: String, joinColumns: JoinColumns): DataFrame = {
+<span class="fc" id="L153">    spark.read.parquet(input).select(joinColumns.numids2crosswalk, joinColumns.householdIdColumn)</span>
+  }
+
+  private def joinCrosswalkAndNumericIds(crosswalk: DataFrame,
+                                         numericIds: DataFrame,
+                                         joinColumns: JoinColumns): DataFrame = {
+<span class="fc" id="L159">    crosswalk.as(&quot;cw&quot;).join(numericIds.as(&quot;nids&quot;),</span>
+<span class="fc" id="L160">      crosswalk(joinColumns.crosswalk2numids) === numericIds(joinColumns.numids2crosswalk))</span>
+<span class="fc" id="L161">      .select($&quot;nids.*&quot;, crosswalk(joinColumns.crosswalk2simmons))</span>
+<span class="fc" id="L162">      .filter(col(joinColumns.crosswalk2simmons).isNotNull)</span>
+<span class="fc" id="L163">      .cache()</span>
+  }
+
+  private def processPunchBatches(simmons: DataFrame,
+                                  crossJoin: DataFrame,
+                                  outputPath: String,
+                                  params: SimmonsDenormParams): Unit = {
+
+    //obtain the batches according to the distinc punch part 1 found in simmons data
+<span class="fc" id="L172">    val batches =  simmons.select($&quot;punch_part&quot;.cast(&quot;integer&quot;).as(&quot;punch_part&quot;))</span>
+<span class="fc" id="L173">      .distinct()</span>
+<span class="fc" id="L174">      .sort(&quot;punch_part&quot;)</span>
+<span class="fc" id="L175">      .collect()</span>
+<span class="fc" id="L176">      .map(_.getInt(0))</span>
+
+<span class="pc bpc" id="L178" title="1 of 2 branches missed.">    batches.foreach {punchPart =&gt;</span>
+      //obtain the batch to process given the current punch part
+<span class="fc" id="L180">      val batch = simmons.filter($&quot;punch_part&quot; === punchPart.toString)</span>
+<span class="fc" id="L181">        .select($&quot;punch_part&quot;, col(params.joinColumns.simmons2crosswalk) , col(params.attributeColumn))</span>
+
+      //obtain final records to persist for the current batch
+<span class="fc" id="L184">      val records = batch.as(&quot;sim&quot;).join(crossJoin.as(&quot;hhids&quot;),</span>
+<span class="fc" id="L185">        batch(params.joinColumns.simmons2crosswalk) === crossJoin(params.joinColumns.crosswalk2simmons))</span>
+<span class="fc" id="L186">        .select($&quot;punch_part&quot;,</span>
+<span class="fc" id="L187">          col(params.joinColumns.numids2crosswalk),</span>
+<span class="fc" id="L188">          col(params.joinColumns.householdIdColumn),</span>
+<span class="fc" id="L189">          batch(params.attributeColumn))</span>
+
+      //persist
+<span class="fc" id="L192">      records.coalesce(params.writePartitions)</span>
+<span class="fc" id="L193">        .write</span>
+<span class="fc" id="L194">        .mode(&quot;append&quot;)</span>
+<span class="fc" id="L195">        .partitionBy(&quot;punch_part&quot;)</span>
+<span class="fc" id="L196">        .parquet(outputPath)</span>
+    }
+  }
+
+  override def run(args: JSONObject): Unit = {
+<span class="fc" id="L201">    val inputPath = args.getString(&quot;input_path&quot;)</span>
+<span class="fc" id="L202">    val crosswalkPath = args.getString(&quot;crosswalk_path&quot;)</span>
+<span class="fc" id="L203">    val numericIdsPath = args.getString(&quot;numeric_ids_path&quot;)</span>
+<span class="fc" id="L204">    val attributeColumn = args.getString(&quot;attribute_column&quot;)</span>
+<span class="fc" id="L205">    val outputPath = args.getString(&quot;output_path&quot;)</span>
+<span class="fc" id="L206">    val writePartitions = args.getOrElse[Int](&quot;write_partitions&quot;, 0)</span>
+<span class="fc" id="L207">    val joinColumnsJson = args.getOrElse[JSONObject](&quot;join_columns&quot;, new JSONObject())</span>
+<span class="fc" id="L208">    val punchPartFilters = args.getOrElse[String](&quot;punch_part_filters&quot;, &quot;&quot;)</span>
+
+<span class="pc bpc" id="L210" title="1 of 2 branches missed.">    val joinColumns = if (!joinColumnsJson.isEmpty){</span>
+<span class="fc" id="L211">        JoinColumns()</span>
+<span class="fc" id="L212">        .withSimmons2Crosswalk(joinColumnsJson.getOrElse(&quot;simmons_2_crosswalk&quot;, &quot;&quot;))</span>
+<span class="fc" id="L213">        .withCrosswalk2Simmons(joinColumnsJson.getOrElse(&quot;crosswalk_2_simmons&quot;, &quot;&quot;))</span>
+<span class="fc" id="L214">        .withCrosswalk2Numids(joinColumnsJson.getOrElse(&quot;crosswalk_2_numids&quot;, &quot;&quot;))</span>
+<span class="fc" id="L215">        .withNumids2Crosswalk(joinColumnsJson.getOrElse(&quot;numids_2_crosswalk&quot;, &quot;&quot;))</span>
+<span class="fc" id="L216">        .withHouseholdIdColumn(joinColumnsJson.getOrElse(&quot;hhid_column&quot;, &quot;&quot;))</span>
+    } else {
+<span class="nc" id="L218">      JoinColumns()</span>
+    }
+
+<span class="fc" id="L221">    val params = SimmonsDenormParams(inputPath,</span>
+<span class="fc" id="L222">      crosswalkPath,</span>
+<span class="fc" id="L223">      numericIdsPath,</span>
+<span class="fc" id="L224">      attributeColumn,</span>
+<span class="fc" id="L225">      outputPath)</span>
+<span class="fc" id="L226">        .withWritePartitions(writePartitions)</span>
+<span class="fc" id="L227">        .withJoinColumns(joinColumns)</span>
+<span class="fc" id="L228">        .withPunchPartFilters(punchPartFilters)</span>
+
+<span class="fc" id="L230">    process(params)</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

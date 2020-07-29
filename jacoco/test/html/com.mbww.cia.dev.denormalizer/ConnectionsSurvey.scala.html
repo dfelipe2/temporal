@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ConnectionsSurvey.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.denormalizer</a> &gt; <span class="el_source">ConnectionsSurvey.scala</span></div><h1>ConnectionsSurvey.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.denormalizer
+
+import com.mbww.cia.common.Spark._
+import com.mbww.cia.common.Module
+import org.apache.spark.sql.functions.col
+import org.apache.spark.sql.SaveMode
+import org.apache.spark.sql.expressions.Window
+import org.apache.spark.sql.functions.udf
+import com.mbww.cia.common.utility.Tools.toProperCase
+import org.json.JSONObject
+import org.apache.spark.sql.functions._
+
+<span class="fc" id="L13">class ConnectionsSurvey extends Module {</span>
+
+<span class="pc bpc" id="L15" title="50 of 51 branches missed.">  case class CsOptions(groupFilterExpr: String,</span>
+<span class="pc" id="L16">                       displayDefinitionDataOutpath: String,</span>
+<span class="pc" id="L17">                       connectionsSurveyDenormalizedOutpath: String,</span>
+<span class="pc" id="L18">                       market: String</span>
+                      )
+
+  override def run(args: JSONObject): Unit = {
+
+
+<span class="fc" id="L24">    val mapParquetInputPath = args.getString(&quot;map_parquet_inputpath&quot;)</span>
+<span class="fc" id="L25">    val ipgQuestionGroupsParquetInputpath = args.getString(&quot;ipg_question_groups_parquet_inputpath&quot;)</span>
+<span class="fc" id="L26">    val mbCrossrefParquetInputpath = args.getString(&quot;mb_crossref_parquet_inputpath&quot;)</span>
+<span class="fc" id="L27">    val respondentParquetInputpath = args.getString(&quot;respondent_parquet_inputpath&quot;)</span>
+<span class="fc" id="L28">    val responseParquetInputpath = args.getString(&quot;response_parquet_inputpath&quot;)</span>
+<span class="fc" id="L29">    val groupFilterExpr = args.getString(&quot;group_filter_expr&quot;)</span>
+<span class="fc" id="L30">    val displayDefinitionDataOutpath = args.getString(&quot;display_definition_data_outpath&quot;)</span>
+<span class="fc" id="L31">    val connectionsSurveyDenormalizedOutpath = args.getString(&quot;connections_survey_denormalized_outpath&quot;)</span>
+<span class="fc" id="L32">    val market = args.getString(&quot;market&quot;)</span>
+
+<span class="fc" id="L34">    val csOptions = CsOptions(groupFilterExpr, displayDefinitionDataOutpath, connectionsSurveyDenormalizedOutpath, market)</span>
+
+<span class="fc" id="L36">    generateDenormData(</span>
+<span class="fc" id="L37">      mapParquetInputPath,</span>
+<span class="fc" id="L38">      ipgQuestionGroupsParquetInputpath,</span>
+<span class="fc" id="L39">      mbCrossrefParquetInputpath,</span>
+<span class="fc" id="L40">      respondentParquetInputpath,</span>
+<span class="fc" id="L41">      responseParquetInputpath,</span>
+<span class="fc" id="L42">      csOptions</span>
+    )
+
+  }
+
+  def generateDenormData(mapParquetInputPath: String,
+                         ipgQuestionGroupsParquetInputpath: String,
+                         mbCrossrefParquetInputpath: String,
+                         respondentParquetInputpath: String,
+                         responseParquetInputpath: String,
+                         csOptions: CsOptions
+<span class="fc" id="L53">                        ): Unit = {</span>
+
+
+<span class="fc" id="L56">    val crossrefDf = spark.read.parquet(mbCrossrefParquetInputpath)</span>
+<span class="fc" id="L57">    crossrefDf.createOrReplaceTempView(&quot;crossref_df_view&quot;)</span>
+<span class="fc" id="L58">    val mapDf = spark.read.parquet(mapParquetInputPath)</span>
+<span class="fc" id="L59">    val mapSelColsDf = mapDf.select(&quot;variable_id&quot;, &quot;answer_code&quot;, &quot;question_label&quot;, &quot;answer_label&quot;)</span>
+<span class="fc" id="L60">    val mainMapSelColsDf = mapSelColsDf.filter(&quot;answer_code is NOT NULL and answer_label is NOT NULL&quot;).dropDuplicates(&quot;variable_id&quot;, &quot;answer_code&quot;, &quot;question_label&quot;, &quot;answer_label&quot;)</span>
+
+<span class="fc" id="L62">    val ipgQuestionGroupsDf = spark.read.parquet(ipgQuestionGroupsParquetInputpath)</span>
+<span class="fc" id="L63">    val respondentDf = spark.read.parquet(respondentParquetInputpath)</span>
+<span class="fc" id="L64">    val responseDf = spark.read.parquet(responseParquetInputpath)</span>
+
+
+<span class="pc bpc" id="L67" title="3 of 6 branches missed.">    if (csOptions.market == &quot;UK&quot;) {</span>
+
+<span class="fc" id="L69">      val mainIpgQuestionGroupsDf = ipgQuestionGroupsDf.withColumn(&quot;variable_id1&quot;, concat(lit(&quot;DM&quot;), col(&quot;ITEM_CODE&quot;)))</span>
+<span class="fc" id="L70">      val mainMapDf = mainIpgQuestionGroupsDf.join(mainMapSelColsDf, mainMapSelColsDf(&quot;variable_id&quot;) === mainIpgQuestionGroupsDf(&quot;variable_id1&quot;), &quot;inner&quot;).withColumn(&quot;display_name&quot;, concat(mainIpgQuestionGroupsDf(&quot;GROUP&quot;), lit(&quot; &gt;&gt;&quot;), mainIpgQuestionGroupsDf(&quot;QUESTION&quot;), lit(&quot; &gt;&gt; &quot;), mainMapSelColsDf(&quot;answer_label&quot;))).drop(&quot;question_label&quot;, &quot;answer_label&quot;, &quot;GROUP&quot;, &quot;variable_id1&quot;, &quot;ITEM_CODE&quot;, &quot;QUESTION&quot;)</span>
+<span class="fc" id="L71">      mainMapDf.createOrReplaceTempView(&quot;main_map_df_view&quot;)</span>
+      //Respondent
+<span class="fc" id="L73">      val respondentSelColsDf = respondentDf.select(&quot;customer_id&quot;, &quot;pdate&quot;, &quot;puuid&quot;)</span>
+<span class="fc" id="L74">      val mainRespondentSelColsDf = respondentSelColsDf.drop(&quot;puuid&quot;).filter(&quot;customer_id is NOT NULL and pdate is NOT NULL and pdate != ''&quot;).dropDuplicates(&quot;customer_id&quot;, &quot;pdate&quot;)</span>
+<span class="fc" id="L75">      mainRespondentSelColsDf.createOrReplaceTempView(&quot;main_respondent_sel_cols_df_view&quot;)</span>
+      //Response
+<span class="fc" id="L77">      val mainResponseSelColsDf = responseDf.filter(&quot;response is NOT NULL&quot;).join(mainIpgQuestionGroupsDf, responseDf(&quot;variable_id&quot;) === mainIpgQuestionGroupsDf(&quot;variable_id1&quot;), &quot;inner&quot;).drop(&quot;ITEM_CODE&quot;, &quot;GROUP&quot;, &quot;QUESTION&quot;, &quot;variable_id1&quot;)</span>
+<span class="fc" id="L78">      mainResponseSelColsDf.createOrReplaceTempView(&quot;main_response_sel_cols_df_view&quot;)</span>
+      // FILTERED MAIN QUERY - DATAFRAME
+<span class="fc" id="L80">      val filterMainResponseSelColsDf = mainResponseSelColsDf.filter(csOptions.groupFilterExpr)</span>
+<span class="fc" id="L81">      filterMainResponseSelColsDf.createOrReplaceTempView(&quot;filter_main_response_sel_cols_df_view&quot;)</span>
+<span class="fc" id="L82">      val filterMainMapDf = mainMapDf.filter(csOptions.groupFilterExpr)</span>
+<span class="fc" id="L83">      filterMainMapDf.createOrReplaceTempView(&quot;filter_main_map_df_view&quot;)</span>
+
+<span class="fc" id="L85">      val filMainQueryDf = spark.sql(&quot;select fuse.customer_id, fuse.mbid_v2, concat(resp.variable_id, resp.response) as attributeid &quot; +</span>
+        &quot;from crossref_df_view fuse &quot; +
+        &quot;inner join main_respondent_sel_cols_df_view rspdt ON fuse.customer_id = rspdt.customer_id &quot; +
+<span class="fc" id="L88">        &quot;inner join filter_main_response_sel_cols_df_view resp ON rspdt.customer_id = resp.customer_id  and rspdt.pdate = resp.pdate &quot; +</span>
+        &quot;inner join filter_main_map_df_view map1 on (upper(resp.variable_id) = upper(map1.variable_id) AND resp.response = map1.answer_code) &quot;)
+
+<span class="fc" id="L91">      filMainQueryDf.createOrReplaceTempView(&quot;fil_main_query_df_view&quot;)</span>
+<span class="fc" id="L92">      val denormDf = spark.sql(&quot;Select mbid_v2, attributeid from (select customer_id, mbid_v2, attributeid, ROW_NUMBER() OVER(PARTITION BY customer_id, attributeid ORDER BY attributeid) as RowNum from fil_main_query_df_view)x where RowNum=1&quot;)</span>
+
+<span class="fc" id="L94">      denormDf.write.mode(SaveMode.Append).option(&quot;mapreduce.fileoutputcommitter.algorithm.version&quot;, &quot;2&quot;).parquet(csOptions.connectionsSurveyDenormalizedOutpath)</span>
+
+      //Creating display_name definition list
+<span class="pc bpc" id="L97" title="1 of 2 branches missed.">      if (!csOptions.displayDefinitionDataOutpath.isEmpty) {</span>
+<span class="fc" id="L98">        val displayDf = mainMapDf.withColumn(&quot;attributeid&quot;, concat(col(&quot;variable_id&quot;), col(&quot;answer_code&quot;))).select(&quot;attributeid&quot;, &quot;display_name&quot;)</span>
+<span class="fc" id="L99">        val mainDisplayDf = displayDf.dropDuplicates(&quot;attributeid&quot;, &quot;display_name&quot;)</span>
+<span class="fc" id="L100">        mainDisplayDf.coalesce(1).write.mode(SaveMode.Overwrite).option(&quot;mapreduce.fileoutputcommitter.algorithm.version&quot;, &quot;2&quot;).parquet(csOptions.displayDefinitionDataOutpath)</span>
+      }
+    }
+<span class="pc bpc" id="L103" title="3 of 6 branches missed.">    else if (csOptions.market == &quot;US&quot;) {</span>
+      //question
+<span class="fc" id="L105">      val mainMapDf = ipgQuestionGroupsDf.join(mainMapSelColsDf, mainMapSelColsDf(&quot;variable_id&quot;) === ipgQuestionGroupsDf(&quot;ITEM_CODE&quot;), &quot;inner&quot;).withColumn(&quot;display_name&quot;, concat(ipgQuestionGroupsDf(&quot;GROUP&quot;), lit(&quot; &gt;&gt; &quot;), ipgQuestionGroupsDf(&quot;QUESTION&quot;), lit(&quot; &gt;&gt;&quot;), mainMapSelColsDf(&quot;answer_label&quot;))).drop(&quot;question_label&quot;, &quot;answer_label&quot;, &quot;GROUP&quot;, &quot;ITEM_CODE&quot;, &quot;QUESTION&quot;)</span>
+<span class="fc" id="L106">      mainMapDf.createOrReplaceTempView(&quot;main_map_df_view&quot;)</span>
+      //respondent
+<span class="fc" id="L108">      val respondentSelColsDf = respondentDf.select(&quot;rn_panelist_id&quot;, &quot;pdate&quot;, &quot;customer_id&quot;)</span>
+<span class="fc" id="L109">      val mainRespondentSelColsDf = respondentSelColsDf.filter(&quot;customer_id is NOT NULL and pdate is NOT NULL and pdate != ''&quot;).dropDuplicates(&quot;rn_panelist_id&quot;, &quot;pdate&quot;, &quot;customer_id&quot;)</span>
+<span class="fc" id="L110">      mainRespondentSelColsDf.createOrReplaceTempView(&quot;main_respondent_sel_cols_df_view&quot;)</span>
+      //response
+<span class="fc" id="L112">      val mainResponseSelColsDf = responseDf.filter(&quot;response is NOT NULL&quot;).join(ipgQuestionGroupsDf, responseDf(&quot;variable_id&quot;) === ipgQuestionGroupsDf(&quot;ITEM_CODE&quot;), &quot;inner&quot;).drop(&quot;ITEM_CODE&quot;, &quot;GROUP&quot;, &quot;QUESTION&quot;)</span>
+<span class="fc" id="L113">      mainResponseSelColsDf.createOrReplaceTempView(&quot;main_response_sel_cols_df_view&quot;)</span>
+      // FILTERED MAIN QUERY - DATAFRAME
+<span class="fc" id="L115">      val filterMainResponseSelColsDf = mainResponseSelColsDf.filter(csOptions.groupFilterExpr)</span>
+<span class="fc" id="L116">      filterMainResponseSelColsDf.createOrReplaceTempView(&quot;filter_main_response_sel_cols_df_view&quot;)</span>
+<span class="fc" id="L117">      val filterMainMapDf = mainMapDf.filter(csOptions.groupFilterExpr)</span>
+<span class="fc" id="L118">      filterMainMapDf.createOrReplaceTempView(&quot;filter_main_map_df_view&quot;)</span>
+<span class="fc" id="L119">      val filMainQueryDf = spark.sql(&quot;select fuse.consumer_pel, fuse.puuid, fuse.rn_panelist_id, fuse.imbid,&quot; +</span>
+        &quot; concat(resp.variable_id, resp.response) as attributeid from crossref_df_view fuse inner join main_respondent_sel_cols_df_view rspdt &quot; +
+        &quot;ON fuse.rn_panelist_id = rspdt.rn_panelist_id inner join filter_main_response_sel_cols_df_view resp ON rspdt.customer_id = resp.customer_id  &quot; +
+<span class="fc" id="L122">        &quot;and rspdt.pdate = resp.pdate inner join filter_main_map_df_view map1 on (upper(resp.variable_id) = upper(map1.variable_id) &quot; +</span>
+        &quot;AND resp.response = map1.answer_code) &quot;)
+<span class="fc" id="L124">      filMainQueryDf.createOrReplaceTempView(&quot;fil_main_query_df_view&quot;)</span>
+<span class="fc" id="L125">      val denormDf = spark.sql(&quot;Select consumer_pel, attributeid from (select rn_panelist_id, consumer_pel, attributeid, ROW_NUMBER() OVER(PARTITION BY rn_panelist_id, attributeid ORDER BY attributeid) as RowNum from fil_main_query_df_view)x where RowNum=1&quot;)</span>
+<span class="fc" id="L126">      denormDf.write.mode(SaveMode.Append).option(&quot;mapreduce.fileoutputcommitter.algorithm.version&quot;, &quot;2&quot;).parquet(csOptions.connectionsSurveyDenormalizedOutpath)</span>
+
+      //Creating display_name definition list
+<span class="pc bpc" id="L129" title="1 of 2 branches missed.">      if (!csOptions.displayDefinitionDataOutpath.isEmpty) {</span>
+<span class="fc" id="L130">        val displayDf = mainMapDf.withColumn(&quot;attributeid&quot;, concat(col(&quot;variable_id&quot;), col(&quot;answer_code&quot;))).select(&quot;attributeid&quot;, &quot;display_name&quot;)</span>
+<span class="fc" id="L131">        val mainDisplayDf = displayDf.dropDuplicates(&quot;attributeid&quot;, &quot;display_name&quot;)</span>
+<span class="fc" id="L132">        val filterMainDisplayDf = mainDisplayDf.filter(&quot;!display_name like '%TSK%'&quot;).filter(&quot;!display_name like '%Survey Opinions%'&quot;)</span>
+<span class="fc" id="L133">        filterMainDisplayDf.coalesce(1).write.mode(SaveMode.Overwrite).option(&quot;mapreduce.fileoutputcommitter.algorithm.version&quot;, &quot;2&quot;).parquet(csOptions.displayDefinitionDataOutpath)</span>
+      }
+    }
+<span class="pc bpc" id="L136" title="4 of 6 branches missed.">    else if (csOptions.market == &quot;JP&quot;) {</span>
+      //question
+<span class="fc" id="L138">      val mainMapDf = ipgQuestionGroupsDf.join(mainMapSelColsDf, mainMapSelColsDf(&quot;variable_id&quot;) === ipgQuestionGroupsDf(&quot;ITEM_CODE&quot;), &quot;inner&quot;).withColumn(&quot;display_name&quot;, concat(ipgQuestionGroupsDf(&quot;GROUP&quot;), lit(&quot; &gt;&gt; &quot;), ipgQuestionGroupsDf(&quot;QUESTION&quot;), lit(&quot; &gt;&gt; &quot;), mainMapSelColsDf(&quot;answer_label&quot;))).drop(&quot;question_label&quot;, &quot;answer_label&quot;, &quot;GROUP&quot;, &quot;ITEM_CODE&quot;, &quot;QUESTION&quot;)</span>
+      //respondent
+<span class="fc" id="L140">      val respondentSelColsDf = respondentDf.select(&quot;puuid&quot;, &quot;pdate&quot;, &quot;xcustomerid&quot;)</span>
+<span class="fc" id="L141">      val mainRespondentSelColsDf = respondentSelColsDf.filter(&quot;xcustomerid is NOT NULL and pdate is NOT NULL and pdate != ''&quot;).dropDuplicates(&quot;puuid&quot;, &quot;pdate&quot;, &quot;xcustomerid&quot;)</span>
+      //response
+<span class="fc" id="L143">      val mainResponseSelColsDf = responseDf.filter(&quot;response is NOT NULL&quot;).join(ipgQuestionGroupsDf, responseDf(&quot;variable_id&quot;) === ipgQuestionGroupsDf(&quot;ITEM_CODE&quot;), &quot;inner&quot;).drop(&quot;ITEM_CODE&quot;, &quot;GROUP&quot;, &quot;QUESTION&quot;)</span>
+      // FILTERED MAIN QUERY - DATAFRAME
+<span class="fc" id="L145">      val filterMainResponseSelColsDf = mainResponseSelColsDf.filter(csOptions.groupFilterExpr)</span>
+<span class="fc" id="L146">      val filterMainMapDf = mainMapDf.filter(csOptions.groupFilterExpr)</span>
+      //make joins
+<span class="fc" id="L148">      val crossrefDfCh = crossrefDf.withColumnRenamed(&quot;xcustomerid&quot;, &quot;cw_xcustomerid&quot;)</span>
+<span class="fc" id="L149">      val mainRespondentCh = mainRespondentSelColsDf.withColumnRenamed(&quot;puuid&quot;, &quot;rpdt_puuid&quot;).withColumnRenamed(&quot;pdate&quot;, &quot;rpdt_pdate&quot;)</span>
+<span class="fc" id="L150">      val cwRpdnt = crossrefDfCh.join(mainRespondentCh, crossrefDfCh(&quot;cw_xcustomerid&quot;) === mainRespondentCh(&quot;xcustomerid&quot;), &quot;inner&quot;)</span>
+<span class="fc" id="L151">        .select(&quot;pelid&quot;, &quot;cw_xcustomerid&quot;, &quot;rpdt_puuid&quot;, &quot;rpdt_pdate&quot;)</span>
+<span class="fc" id="L152">      val cwRpdntReps = cwRpdnt.join(filterMainResponseSelColsDf, cwRpdnt(&quot;cw_xcustomerid&quot;) === filterMainResponseSelColsDf(&quot;xcustomerid&quot;) &amp;&amp; cwRpdnt(&quot;rpdt_pdate&quot;) === filterMainResponseSelColsDf(&quot;pdate&quot;), &quot;inner&quot;).withColumn(&quot;attributeid&quot;, concat(col(&quot;variable_id&quot;), col(&quot;response&quot;))).select(&quot;pelid&quot;, &quot;xcustomerid&quot;, &quot;puuid&quot;, &quot;pdate&quot;, &quot;attributeid&quot;, &quot;response&quot;, &quot;variable_id&quot;)</span>
+<span class="fc" id="L153">      val filMainQueryDf = cwRpdntReps.join(filterMainMapDf, cwRpdntReps(&quot;response&quot;) === filterMainMapDf(&quot;answer_code&quot;) &amp;&amp; upper(cwRpdntReps(&quot;variable_id&quot;)) === upper(filterMainMapDf(&quot;variable_id&quot;)), &quot;inner&quot;)</span>
+      //filter duplicates
+<span class="fc" id="L155">      val winSpec = Window.partitionBy(&quot;attributeid&quot;, &quot;xcustomerid&quot;).orderBy(&quot;attributeid&quot;)</span>
+<span class="fc" id="L156">      val denormDf = filMainQueryDf.withColumn(&quot;RowNum&quot;, row_number().over(winSpec)).select(&quot;pelid&quot;, &quot;attributeid&quot;).where(&quot;RowNum=1&quot;)</span>
+      //write
+<span class="fc" id="L158">      denormDf.write.mode(SaveMode.Append).option(&quot;mapreduce.fileoutputcommitter.algorithm.version&quot;, &quot;2&quot;).parquet(csOptions.connectionsSurveyDenormalizedOutpath)</span>
+      //Creating display_name definition list
+<span class="pc bpc" id="L160" title="1 of 2 branches missed.">      if (!csOptions.displayDefinitionDataOutpath.isEmpty) {</span>
+<span class="fc" id="L161">        val toProperCaseUdf = udf(toProperCase)</span>
+<span class="fc" id="L162">        val displayDf = mainMapDf.withColumn(&quot;attributeid&quot;, concat(col(&quot;variable_id&quot;), col(&quot;answer_code&quot;))).withColumn(&quot;display_name&quot;, toProperCaseUdf(col(&quot;display_name&quot;))).select(&quot;attributeid&quot;, &quot;display_name&quot;)</span>
+<span class="fc" id="L163">        val mainDisplayDf = displayDf.dropDuplicates(&quot;attributeid&quot;, &quot;display_name&quot;)</span>
+<span class="fc" id="L164">        mainDisplayDf.coalesce(1).write.mode(SaveMode.Overwrite).option(&quot;mapreduce.fileoutputcommitter.algorithm.version&quot;, &quot;2&quot;).parquet(csOptions.displayDefinitionDataOutpath)</span>
+      }
+    }
+
+    else {
+<span class="nc" id="L169">      println(&quot;Market does not exist&quot;)</span>
+    }
+  }
+
+}
+
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

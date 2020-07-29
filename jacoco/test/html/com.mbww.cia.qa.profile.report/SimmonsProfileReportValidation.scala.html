@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SimmonsProfileReportValidation.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.qa.profile.report</a> &gt; <span class="el_source">SimmonsProfileReportValidation.scala</span></div><h1>SimmonsProfileReportValidation.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.qa.profile.report
+
+import com.mbww.cia.common.Module
+import com.mbww.cia.common.Spark._
+import org.apache.spark.sql.functions.{col, lit}
+import org.json.JSONObject
+import org.slf4j.LoggerFactory
+
+<span class="nc" id="L9">class SimmonsProfileReportValidation extends  Module {</span>
+
+  def validation(survey_response_dict_path: String,
+                 punch_code_input_path: String,
+                 simmons_cw_path: String,
+                 desired_punchcodes_path: String,
+                 output_path: String,
+                 unique_keys_path:String
+                ): Unit = {
+<span class="nc" id="L18">    val log = LoggerFactory.getLogger(&quot;CIA Pipeline&quot;)</span>
+
+<span class="nc" id="L20">    val desired_punchcodes = spark.read.option(&quot;header&quot;, &quot;false&quot;).csv(desired_punchcodes_path).withColumnRenamed(&quot;_c0&quot;, &quot;AttributeID&quot;)</span>
+<span class="nc" id="L21">    val survey_response_dict = spark.read.load(survey_response_dict_path)</span>
+
+<span class="nc" id="L23">    val punch_code_input = spark.read.load(punch_code_input_path)</span>
+<span class="nc" id="L24">    val simmons_cw = spark.read.load(simmons_cw_path)</span>
+<span class="nc" id="L25">    val unique_keys=spark.read.load(unique_keys_path)</span>
+
+<span class="nc" id="L27">    var filtered_survey_resp_dict_df =desired_punchcodes.join(survey_response_dict,desired_punchcodes(&quot;AttributeID&quot;) === survey_response_dict(&quot;punch_code&quot;),&quot;inner&quot;)</span>
+<span class="nc" id="L28">      .select(survey_response_dict.col(&quot;punch_code&quot;),</span>
+<span class="nc" id="L29">        survey_response_dict.col(&quot;simmons_panelist_id&quot;)</span>
+      )
+
+<span class="nc" id="L32">    var filtered_punch_code_input_tbl_df =  desired_punchcodes.join(punch_code_input,desired_punchcodes(&quot;AttributeID&quot;) === punch_code_input(&quot;punch_code&quot;),&quot;inner&quot;)</span>
+<span class="nc" id="L33">      .select(punch_code_input.col(&quot;punch_code&quot;)</span>
+      )
+
+<span class="nc" id="L36">    var simmons_ids_df =filtered_punch_code_input_tbl_df.join(filtered_survey_resp_dict_df,filtered_punch_code_input_tbl_df(&quot;punch_code&quot;) === filtered_survey_resp_dict_df(&quot;punch_code&quot;),&quot;inner&quot; ).</span>
+<span class="nc" id="L37">      select(filtered_punch_code_input_tbl_df.col(&quot;punch_code&quot;),</span>
+<span class="nc" id="L38">        filtered_survey_resp_dict_df.col(&quot;simmons_panelist_id&quot;)</span>
+      )
+
+
+<span class="nc" id="L42">    val reduced_cw = simmons_cw</span>
+<span class="nc" id="L43">      .filter(!col(&quot;consumer_pel&quot;).like(&quot;UNMATCHED&quot;))</span>
+<span class="nc" id="L44">      .filter(col(&quot;consumer_pel&quot;).like(&quot;XY%&quot;))</span>
+<span class="nc" id="L45">      .filter(col(&quot;simmons_panelist_id&quot;).isNotNull)</span>
+<span class="nc" id="L46">      .filter(col(&quot;match_level&quot;).isNotNull)</span>
+<span class="nc" id="L47">      .filter(col(&quot;consumer_pel&quot;).isNotNull)</span>
+<span class="nc" id="L48">      .filter(col(&quot;match_level&quot;).between(0, 27))</span>
+
+
+<span class="nc" id="L51">    var profiles_src_df =reduced_cw.join(simmons_ids_df,reduced_cw(&quot;simmons_panelist_id&quot;)=== simmons_ids_df(&quot;simmons_panelist_id&quot;),&quot;inner&quot;)</span>
+<span class="nc" id="L52">      .select(reduced_cw.col(&quot;consumer_pel&quot;),</span>
+<span class="nc" id="L53">        reduced_cw.col(&quot;simmons_panelist_id&quot;),</span>
+<span class="nc" id="L54">        simmons_ids_df(&quot;punch_code&quot;)</span>
+      )
+
+<span class="nc" id="L57">    var profiles_src =unique_keys.join(reduced_cw,unique_keys(&quot;mbid_value&quot;) === reduced_cw(&quot;consumer_pel&quot;),&quot;inner&quot; ).</span>
+<span class="nc" id="L58">      select(unique_keys.col(&quot;mbid&quot;),</span>
+<span class="nc" id="L59">        reduced_cw.col(&quot;simmons_panelist_id&quot;)</span>
+<span class="nc" id="L60">      ).withColumnRenamed(&quot;mbid&quot;,&quot;numericId&quot;)</span>
+
+<span class="nc" id="L62">    val expectedProfileReport=profiles_src.join(simmons_ids_df,profiles_src(&quot;simmons_panelist_id&quot;) === simmons_ids_df(&quot;simmons_panelist_id&quot;),&quot;inner&quot;).</span>
+<span class="nc" id="L63">      select(</span>
+<span class="nc" id="L64">        profiles_src.col(&quot;simmons_panelist_id&quot;),</span>
+<span class="nc" id="L65">        simmons_ids_df.col(&quot;punch_code&quot;),</span>
+<span class="nc" id="L66">        profiles_src.col(&quot;numericId&quot;)</span>
+      )
+
+<span class="nc" id="L69">    val expectedNumericId=expectedProfileReport.select(&quot;numericId&quot;)</span>
+<span class="nc" id="L70">    val expectedNumericIdDf=expectedNumericId.distinct</span>
+<span class="nc" id="L71">    val expectedNumericCount=expectedNumericIdDf.count</span>
+<span class="nc" id="L72">    log.info(s&quot;expected Numeric Id Count is : &quot; + expectedNumericCount)</span>
+
+<span class="nc" id="L74">    val punch_codeCol=expectedProfileReport.select(&quot;punch_code&quot;).distinct</span>
+<span class="nc" id="L75">    val expectedPunchCodeCount=punch_codeCol.count</span>
+<span class="nc" id="L76">    log.info(s&quot;expected PunchCode columns Count is : &quot; + expectedPunchCodeCount)</span>
+
+<span class="nc" id="L78">    val actualProfile=spark.read.load(output_path)</span>
+<span class="nc" id="L79">    val actualNumericId=actualProfile.select(&quot;numericId&quot;)</span>
+<span class="nc" id="L80">    val actualNumericCount=actualNumericId.count()</span>
+<span class="nc" id="L81">    log.info(s&quot;actual count of NumericId in profile report is : &quot; + actualNumericCount)</span>
+
+<span class="nc" id="L83">    val actualColumns=actualProfile.columns.size</span>
+<span class="nc" id="L84">    log.info(s&quot;actual Columns count in profile report is : &quot; + actualColumns)</span>
+
+<span class="nc bnc" id="L86" title="All 2 branches missed.">    if (!(expectedNumericCount == actualNumericCount)) {</span>
+<span class="nc" id="L87">      throw new RuntimeException(</span>
+<span class="nc" id="L88">        s&quot;Actual count of  Numeric Id  is :   ${expectedNumericCount}  not same as Expected  Numeric  Id count ${actualNumericCount} &quot;)</span>
+
+    }
+<span class="nc" id="L91">    log.info(s&quot;Actual  count of  Numeric Id is : ${expectedNumericCount}   same as Expected  Numeric  Id count ${actualNumericCount} &quot;)</span>
+
+<span class="nc" id="L93">    val actualColOfPunchCode=actualProfile.columns.size</span>
+
+<span class="nc bnc" id="L95" title="All 2 branches missed.">    if (!(expectedPunchCodeCount == actualColOfPunchCode-1)) {</span>
+<span class="nc" id="L96">      throw new RuntimeException(</span>
+<span class="nc" id="L97">        s&quot;Actual count of PunchCode columns is:  ${expectedPunchCodeCount}  not same as Expected PunchCode columns count ${actualColOfPunchCode-1} &quot;)</span>
+
+    }
+<span class="nc" id="L100">    log.info(s&quot;Actual  count of PunchCode columns is:  ${expectedPunchCodeCount}   same as Expected PunchCode columns count ${actualColOfPunchCode-1} &quot;)</span>
+
+<span class="nc" id="L102">    val actualProfileDF=actualProfile.drop(&quot;numericId&quot;)</span>
+<span class="nc" id="L103">    val actualField=actualProfileDF.schema.fieldNames</span>
+<span class="nc" id="L104">    val expectedField= punch_codeCol.collect</span>
+
+<span class="nc" id="L106">    for(fieldName &lt;-expectedField )</span>
+    {
+<span class="nc bnc" id="L108" title="All 2 branches missed.">      if(!actualField.contains(fieldName.mkString))</span>
+      {
+<span class="nc" id="L110">        throw new RuntimeException(</span>
+<span class="nc" id="L111">          s&quot;Actual profile report does not contains the punch code column : ${fieldName.mkString}&quot;)</span>
+      }
+    }
+<span class="nc" id="L114">    log.info(s&quot;Actual profile report  contains the all expected punch code columns&quot;)</span>
+
+<span class="nc" id="L116">    val sampleNumricIds=expectedNumericIdDf.sample(true,.00000007,1L)</span>
+<span class="nc" id="L117">    val sampleNumericList=sampleNumricIds.collect()</span>
+<span class="nc" id="L118">    for(sampleId &lt;- sampleNumericList)</span>
+    {
+<span class="nc" id="L120">      val numericIdDf=sampleId.mkString</span>
+<span class="nc" id="L121">      log.info(s&quot;numeric Id  : ${numericIdDf}&quot;)</span>
+<span class="nc" id="L122">      val filteredexpectedProfileReport = expectedProfileReport.filter(s&quot;numericId='${numericIdDf}'&quot;)</span>
+<span class="nc" id="L123">      val filteredActualProfileReport=actualProfile.filter(s&quot;numericId='${numericIdDf}'&quot;)</span>
+<span class="nc" id="L124">      val values = filtered_punch_code_input_tbl_df.select(&quot;punch_code&quot;).rdd.map(r =&gt; r(0)).collect().map(_.toString)</span>
+<span class="nc" id="L125">      val pivotedDf =filteredexpectedProfileReport.groupBy(&quot;numericId&quot;).pivot(&quot;punch_code&quot;,values).agg(lit(1)).na.fill(0)</span>
+<span class="nc" id="L126">      val actualValues=filteredActualProfileReport.repartition(1).persist</span>
+<span class="nc" id="L127">      var expectedValues=pivotedDf.repartition(1).persist</span>
+<span class="nc" id="L128">      val columnInReport=actualValues.columns.par</span>
+<span class="nc" id="L129">      for(col &lt;- columnInReport)</span>
+      {
+<span class="nc bnc" id="L131" title="All 6 branches missed.">        if(!(actualValues.select(&quot;&quot;&quot;`&quot;&quot;&quot; + col + &quot;&quot;&quot;`&quot;&quot;&quot;).first.toString==expectedValues.select(&quot;&quot;&quot;`&quot;&quot;&quot; + col + &quot;&quot;&quot;`&quot;&quot;&quot;).first.toString))</span>
+        {
+<span class="nc" id="L133">          throw new RuntimeException(</span>
+<span class="nc" id="L134">            s&quot;Actual profile report not contains the expected data for numeric ID : ${numericIdDf}&quot;)</span>
+        }
+      }
+<span class="nc" id="L137">      log.info(s&quot;Actual profile report contains the expected data for numeric ID : ${numericIdDf}&quot;)</span>
+<span class="nc" id="L138">      true</span>
+    }
+
+  }
+
+  override def run(args: JSONObject): Unit = {
+
+
+<span class="nc" id="L146">    val survey_response_dict_path = args.getString(&quot;survey_response_dict_path&quot;)</span>
+<span class="nc" id="L147">    val punch_code_input_path = args.getString(&quot;punch_code_input_path&quot;)</span>
+<span class="nc" id="L148">    val simmons_cw_path = args.getString(&quot;simmons_cw_path&quot;)</span>
+<span class="nc" id="L149">    val desired_punchcodes_path = args.getString(&quot;desired_punchcodes_path&quot;)</span>
+<span class="nc" id="L150">    val output_path = args.getString(&quot;output_path&quot;)</span>
+<span class="nc" id="L151">    val unique_keys_path=args.getString(&quot;unique_keys_path&quot;)</span>
+
+<span class="nc" id="L153">    validation(survey_response_dict_path,</span>
+<span class="nc" id="L154">      punch_code_input_path,</span>
+<span class="nc" id="L155">      simmons_cw_path,</span>
+<span class="nc" id="L156">      desired_punchcodes_path,</span>
+<span class="nc" id="L157">      output_path,</span>
+<span class="nc" id="L158">      unique_keys_path</span>
+    )
+  }
+}
+
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

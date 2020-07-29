@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>FileSystemSupport.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.common.utility.util</a> &gt; <span class="el_source">FileSystemSupport.scala</span></div><h1>FileSystemSupport.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.common.utility.util
+
+import java.net.URI
+import org.apache.hadoop.fs._
+import org.slf4j.LoggerFactory
+import com.mbww.cia.common.Spark._
+/**
+  * Utility methods used to interact with hadoop FileSystems.
+  */
+object FileSystemSupport {
+
+<span class="fc" id="L12">  @transient val Logger = LoggerFactory.getLogger(this.getClass)</span>
+
+  /**
+    * Constructs a FileSystem instance from a given path (e.g. s3, s3a, s3n, hdfs).
+    *
+    * @param path         The path of the fileSystem. Beware for S3 backed fileSystem a different bucket means a different
+    *                     fileSystem.
+    * @param sparkSession A sparkSession object used to obtain the hadoop configuration.
+    * @return A new FileSystem instance.
+    */
+  def getFileSystem(path: String): FileSystem = {
+<span class="fc" id="L23">    FileSystem.get(new URI(path), spark.sparkContext.hadoopConfiguration)</span>
+  }
+
+  /**
+    * Gets an iterator of hadoop path statuses for a given directory.
+    *
+    * @param path      The directory..
+    * @param recursive Whether or not the listing is recursive.
+    * @param fs        A hadoop fileSystem in the scope of the path.
+    * @return An iterator with the path statuses.
+    */
+  def listFilesInPath(path: String,
+<span class="nc" id="L35">                      recursive: Boolean = false)(implicit fs: FileSystem = getFileSystem(path)): Iterator[LocatedFileStatus] = {</span>
+<span class="pc" id="L36">    new Iterator[LocatedFileStatus] {</span>
+<span class="fc" id="L37">      val remoteIterator = fs.listFiles(new Path(path), recursive)</span>
+<span class="fc" id="L38">      override def hasNext: Boolean = remoteIterator.hasNext</span>
+
+<span class="fc" id="L40">      override def next(): LocatedFileStatus = remoteIterator.next()</span>
+    }
+  }
+
+  /**
+    * Renames files in an input type according to a function.
+    * @param inputPath The input path where files are located.
+    * @param renameFn The renaming function.
+    * @param recursive Whether the listing of files is done recursively.
+    * @param inputFs Input hadoop file system where files are located.
+    */
+  def renameFilesOnPath(inputPath: String,
+                        renameFn: String =&gt; String,
+<span class="nc" id="L53">                        recursive: Boolean = false)</span>
+                       (implicit inputFs: FileSystem =
+<span class="fc" id="L55">                        getFileSystem(inputPath)) = {</span>
+<span class="fc" id="L56">    listFilesInPath(inputPath, recursive)(inputFs).toStream.par.foreach(p =&gt; {</span>
+<span class="fc" id="L57">      val oldName = p.getPath.toString</span>
+<span class="fc" id="L58">      val newName = renameFn(oldName)</span>
+<span class="fc" id="L59">      inputFs.mkdirs(new Path(newName).getParent)</span>
+<span class="pc bpc" id="L60" title="1 of 2 branches missed.">      if (inputFs.rename(p.getPath, new Path(newName)))</span>
+<span class="fc" id="L61">        Logger.info(s&quot;Renamed $oldName -&gt; $newName&quot;)</span>
+    })
+  }
+<span class="fc" id="L64">}</span>
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

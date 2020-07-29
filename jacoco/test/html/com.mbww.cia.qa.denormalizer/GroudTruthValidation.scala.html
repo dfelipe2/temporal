@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>GroudTruthValidation.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.qa.denormalizer</a> &gt; <span class="el_source">GroudTruthValidation.scala</span></div><h1>GroudTruthValidation.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.qa.denormalizer
+
+
+import com.mbww.cia.common.Spark._
+import com.mbww.cia.common.{Module, _}
+import com.mbww.cia.qa.utils.{UtilsFunction, ValidationUtils}
+import org.apache.spark.sql.functions.col
+import org.json.JSONObject
+import org.slf4j.LoggerFactory
+import com.mbww.cia.common.utility.Tools.estTimezoneConverter
+import org.apache.spark.sql.types.{StringType, StructField, StructType}
+import org.joda.time.DateTime
+
+import scala.collection.Seq
+
+<span class="nc" id="L16">class GroudTruthValidation extends Module  {</span>
+<span class="nc" id="L17">  val log = LoggerFactory.getLogger(&quot;CIA Pipeline&quot;)</span>
+<span class="nc" id="L18">  var structTypeSchema:StructType = null</span>
+  def validation(gt_cw_parquet_path: String,
+                  gt_fact_parquet_base_path: String,
+                  zipcode_geo_detail_path: String,
+                  infobase_path: String,
+                  prossesing_year:String,
+                  prosesing_months: Seq[String],
+                  output_path: String,
+                  input_columns: Seq[String]
+                 ): Boolean = {
+<span class="nc" id="L28">    val infobase = spark.read.parquet(infobase_path)</span>
+<span class="nc" id="L29">    val zipcode_geo_detail = spark.read.parquet(zipcode_geo_detail_path)</span>
+<span class="nc" id="L30">    var gt_cw = spark.read.parquet(gt_cw_parquet_path)</span>
+
+<span class="nc" id="L32">    gt_cw.createOrReplaceTempView( &quot;groundtruth_crosswalk_data&quot; )</span>
+<span class="nc" id="L33">    infobase.createOrReplaceTempView( &quot;uniquekeys&quot; )</span>
+<span class="nc" id="L34">    zipcode_geo_detail.createOrReplaceTempView(&quot;groundtruth_dimesion_data&quot;)</span>
+<span class="nc" id="L35">    structTypeSchema = StructType(input_columns.map(c =&gt; StructField(c, StringType, true)).toArray)</span>
+
+<span class="nc bnc" id="L37" title="All 2 branches missed.">    for (processingmonth &lt;- prosesing_months) {</span>
+<span class="nc" id="L38">      val groundtruth_per_month_partitioned_data_df = spark.read.parquet(gt_fact_parquet_base_path + &quot;/year=&quot; + prossesing_year + &quot;/month=&quot; + processingmonth + &quot;/&quot;)</span>
+
+<span class="nc" id="L40">      val maxDay = UtilsFunction.getDaysInMonth(prossesing_year, processingmonth)</span>
+<span class="nc bnc" id="L41" title="All 2 branches missed.">      for (day &lt;- 2 to maxDay)</span>
+      {
+<span class="nc bnc" id="L43" title="All 2 branches missed.">        val newDay = (if (day &lt; 10) &quot;0&quot; + day else &quot;&quot; + day);</span>
+<span class="nc" id="L44">        println(s&quot;newDay&quot;+newDay)</span>
+
+<span class="nc" id="L46">        val pday=newDay.toInt-1</span>
+<span class="nc" id="L47">        println(s&quot;previousDay&quot; + pday.toString)</span>
+<span class="nc" id="L48">        var actualDay=&quot;&quot;</span>
+
+<span class="nc" id="L50">        val nDay=newDay.toInt+1</span>
+<span class="nc" id="L51">        println(s&quot;nextDay&quot; + nDay.toString)</span>
+
+<span class="nc bnc" id="L53" title="All 2 branches missed.">        if(day&lt;10){</span>
+<span class="nc" id="L54">          actualDay=day.toString</span>
+        }
+        else
+        {
+<span class="nc" id="L58">          actualDay=newDay</span>
+        }
+
+<span class="nc" id="L61">        var days = Array(pday,actualDay,nDay)</span>
+<span class="nc" id="L62">        val maximumDay=maxDay.toString</span>
+
+<span class="nc bnc" id="L64" title="All 2 branches missed.">        if(newDay.equals(maximumDay))</span>
+          {
+<span class="nc" id="L66">            var daylist=Array(pday,actualDay)</span>
+<span class="nc" id="L67">            val groundtruth_per_month_partitioned_data1=groundtruth_per_month_partitioned_data_df.filter(col(&quot;day&quot;).isin(daylist:_*))</span>
+<span class="nc" id="L68">            val nextMonth=new DateTime(s&quot;${prossesing_year}-${processingmonth}-01&quot;).plusMonths(1).getMonthOfYear</span>
+<span class="nc bnc" id="L69" title="All 2 branches missed.">            val nextMonthOfYear = (if (nextMonth &lt; 10) &quot;0&quot; + nextMonth else &quot;&quot; + nextMonth);</span>
+<span class="nc" id="L70">            println(s&quot;nextMonthOfYear&quot; + nextMonthOfYear)</span>
+<span class="nc" id="L71">            val dayOfNextMonth=new DateTime(s&quot;${prossesing_year}-${processingmonth}-01&quot;).plusMonths(1).getDayOfMonth</span>
+<span class="nc" id="L72">            println(s&quot;dayOfNextMonth&quot; + dayOfNextMonth)</span>
+<span class="nc" id="L73">            daylist=Array(dayOfNextMonth)</span>
+<span class="nc" id="L74">            val groundtruth_per_month_partitioned_data_df_next_month = spark.read.parquet(gt_fact_parquet_base_path + &quot;/year=&quot; + prossesing_year + &quot;/month=&quot; + nextMonthOfYear + &quot;/&quot;)</span>
+<span class="nc" id="L75">            val groundtruth_per_month_partitioned_data2=groundtruth_per_month_partitioned_data_df_next_month.filter(col(&quot;day&quot;).isin(daylist:_*))</span>
+<span class="nc" id="L76">            val joined_fact=groundtruth_per_month_partitioned_data1.union(groundtruth_per_month_partitioned_data2)</span>
+<span class="nc" id="L77">            joined_fact.createOrReplaceTempView(&quot;groundtruth_per_month_partitioned_data&quot;)</span>
+
+          }
+        else
+          {
+<span class="nc" id="L82">            var groundtruth_per_month_partitioned_data=groundtruth_per_month_partitioned_data_df.filter(col(&quot;day&quot;).isin(days:_*))</span>
+<span class="nc" id="L83">            groundtruth_per_month_partitioned_data.createOrReplaceTempView(&quot;groundtruth_per_month_partitioned_data&quot;)</span>
+
+          }
+
+
+<span class="nc" id="L88">        spark.sql(&quot;SELECT a.gt_id, a.last_seen_date, first_seen_date, b.mbid, b.mbid_value, b.hhid, b.hhid_value FROM groundtruth_crosswalk_data a inner join uniquekeys b ON a.consumer_pel = b.mbid_value&quot;).createOrReplaceTempView(&quot;groundtruth_cw_uniqueKeys&quot;)</span>
+
+<span class="nc" id="L90">        spark.sql(&quot;SELECT action_timestamp, to_timestamp(action_timestamp,'yyyy-MM-dd HH:mm:ss') as myTimestamp, gt_id, category, brand_label, company_name, city_label, state_abbreviation, zip_code, dwell_time, visit_dwell_id, day FROM groundtruth_per_month_partitioned_data WHERE dwell_time!=-1 AND dwell_time is not null&quot;).createOrReplaceTempView(&quot;groundTruth_withoutNullOrMinusOne_data&quot;)</span>
+
+<span class="nc" id="L92">        spark.sql(&quot;SELECT action_timestamp, myTimestamp, gt_id, category, brand_label, company_name, city_label, state_abbreviation, zip_code, dwell_time, visit_dwell_id,day FROM (SELECT action_timestamp, myTimestamp, gt_id, category, brand_label, company_name, city_label, state_abbreviation, zip_code, dwell_time, visit_dwell_id,day, ROW_NUMBER() OVER(PARTITION BY visit_dwell_id ORDER BY myTimestamp) as rownum FROM groundTruth_withoutNullOrMinusOne_data)p WHERE rownum=1&quot;).createOrReplaceTempView(&quot;groundTruth_withoutNullOrMinusOneFiltered_data&quot;)</span>
+
+<span class="nc" id="L94">        spark.sql(&quot;SELECT action_timestamp, to_timestamp(action_timestamp,'yyyy-MM-dd HH:mm:ss') as myTimestamp, gt_id, category, brand_label, company_name, city_label, state_abbreviation, zip_code, dwell_time, visit_dwell_id ,day FROM groundtruth_per_month_partitioned_data WHERE dwell_time=-1 or dwell_time is null&quot;).createOrReplaceTempView(&quot;groundTruth_withNullOrMinusOne_data&quot;)</span>
+
+<span class="nc" id="L96">        spark.sql(&quot;SELECT * FROM groundTruth_withoutNullOrMinusOneFiltered_data UNION ALL SELECT * FROM groundTruth_withNullOrMinusOne_data&quot;).createOrReplaceTempView(&quot;groundTruth_fact_filtered_merged_data&quot;)</span>
+
+<span class="nc" id="L98">        spark.sql(&quot;SELECT a.action_timestamp, a.myTimestamp, a.gt_id, a.category, a.brand_label, a.company_name, a.city_label, b.state_abbreviation, a.zip_code, a.dwell_time, a.visit_dwell_id, b.timezone, a.day  FROM groundTruth_fact_filtered_merged_data a inner join groundtruth_dimesion_data b on a.zip_code=b.zip_code&quot;).createOrReplaceTempView(&quot;groundTruth_fact_joined_with_dimension&quot;)</span>
+
+<span class="nc" id="L100">        spark.udf.register(&quot;est_timezone_converter&quot;,estTimezoneConverter)</span>
+
+
+<span class="nc" id="L103">        spark.sql(&quot;SELECT  est_timezone_converter(a.timezone,a.action_timestamp) as local_timestamp,  a.action_timestamp, a.myTimestamp, a.gt_id, a.category, a.brand_label as brand, a.company_name, a.city_label, a.state_abbreviation, a.zip_code, a.dwell_time, a.visit_dwell_id, a.timezone, b.mbid, b.mbid_value, b.hhid, b.hhid_value, b.first_seen_date, b.last_seen_date , a.day FROM groundTruth_fact_joined_with_dimension a inner join groundtruth_cw_uniqueKeys b ON (a.gt_id=b.gt_id AND a.myTimestamp BETWEEN b.first_seen_date AND b.last_seen_date)&quot;).createOrReplaceTempView(&quot;groundTruth_data_with_expected_timezone&quot;)</span>
+
+<span class="nc" id="L105">        val expectedDf=spark.sql(&quot;SELECT action_timestamp, local_timestamp, TO_DATE(CAST(UNIX_TIMESTAMP(local_timestamp,'yyyy-MM-dd') AS TIMESTAMP)) AS date, hour(local_timestamp) as hour, gt_id, category, brand, company_name, city_label, state_abbreviation, zip_code, dwell_time, visit_dwell_id, timezone, mbid, mbid_value, hhid, hhid_value, last_seen_date, first_seen_date , day FROM groundTruth_data_with_expected_timezone&quot;)</span>
+
+<span class="nc" id="L107">        val expectedFiltered=expectedDf.filter(col(&quot;date&quot;)===prossesing_year +&quot;-&quot;+ processingmonth +&quot;-&quot;+ newDay)</span>
+
+<span class="nc" id="L109">        val actualIbiddata=spark.read.load(output_path+&quot;/date=&quot;+ prossesing_year +&quot;-&quot;+ processingmonth +&quot;-&quot;+ newDay +&quot;/&quot;)</span>
+
+        /** Schema type validation*/
+<span class="nc" id="L112">        ValidationUtils.validateSchema(structTypeSchema,actualIbiddata.schema)</span>
+
+        /** validate the expected count and actual count is equal*/
+<span class="nc" id="L115">        ValidationUtils.validateCount(expectedFiltered,actualIbiddata)</span>
+      }
+
+    }
+<span class="nc" id="L119">    true</span>
+  }
+
+
+  override def run(args: JSONObject): Unit = {
+
+
+<span class="nc" id="L126">    val gt_cw_parquet_path = args.getString(&quot;gt_cw_parquet_path&quot;)</span>
+<span class="nc" id="L127">    val gt_fact_parquet_base_path = args.getString(&quot;gt_fact_parquet_base_path&quot;)</span>
+<span class="nc" id="L128">    val zipcode_geo_detail_path = args.getString(&quot;zipcode_geo_detail_path&quot;)</span>
+<span class="nc" id="L129">    val infobase_path = args.getString(&quot;infobase_path&quot;)</span>
+<span class="nc" id="L130">    val prossesing_year = args.getString(&quot;prossesing_year&quot;)</span>
+<span class="nc" id="L131">    val prosesing_months = args.getSeq[String](&quot;prosesing_months&quot;)</span>
+<span class="nc" id="L132">    val output_path = args.getString(&quot;output_path&quot;)</span>
+<span class="nc" id="L133">    val input_columns = args.getSeq[String](&quot;columns&quot;)</span>
+
+
+<span class="nc" id="L136">    validation(</span>
+<span class="nc" id="L137">      gt_cw_parquet_path,</span>
+<span class="nc" id="L138">      gt_fact_parquet_base_path,</span>
+<span class="nc" id="L139">      zipcode_geo_detail_path,</span>
+<span class="nc" id="L140">      infobase_path,</span>
+<span class="nc" id="L141">      prossesing_year,</span>
+<span class="nc" id="L142">      prosesing_months,</span>
+<span class="nc" id="L143">      output_path,</span>
+<span class="nc" id="L144">      input_columns</span>
+    )
+  }
+
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

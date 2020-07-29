@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Setup.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.qa.utils</a> &gt; <span class="el_source">Setup.scala</span></div><h1>Setup.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.qa.utils
+import com.amazonaws.services.s3.{AmazonS3,  AmazonS3ClientBuilder}
+import org.apache.log4j.Logger
+
+<span class="fc" id="L5">class Setup(marketName:String,bucket:String,dataProviderName:String,matchingPartnerName:String) {</span>
+<span class="fc" id="L6">  private val logger = Logger.getLogger(getClass().getName())</span>
+<span class="fc" id="L7">  var region = &quot;&quot;;</span>
+
+<span class="fc bfc" id="L9" title="All 2 branches covered.">  if(marketName.toUpperCase.equals(&quot;UK&quot;))</span>
+  {
+<span class="fc" id="L11">    region = &quot;eu-west-2&quot;</span>
+  }
+  else
+  {
+<span class="fc" id="L15">    region = &quot;us-east-1&quot;</span>
+  }
+<span class="pc" id="L17">  var  awsS3Client: AmazonS3 = AmazonS3ClientBuilder.standard()</span>
+<span class="fc" id="L18">    .withRegion(region)</span>
+<span class="fc" id="L19">    .build();</span>
+
+  def bucketName: String = {
+<span class="fc" id="L22">    try {</span>
+<span class="fc" id="L23">     bucket</span>
+          }
+    catch{
+<span class="nc" id="L26">      case exp:IllegalArgumentException =&gt; logger.info(&quot;################### Bucket name  is not present   &quot; + exp)</span>
+<span class="nc" id="L27">        return &quot;&quot;</span>
+    }
+  }
+
+  def dataProvider: String = {
+<span class="fc" id="L32">    try{</span>
+<span class="fc" id="L33">      dataProviderName</span>
+    }
+    catch{
+<span class="nc" id="L36">      case exp:IllegalArgumentException =&gt; logger.info(&quot;################### Data Provider   is not present   &quot; + exp)</span>
+<span class="nc" id="L37">        return &quot;&quot;</span>
+    }
+  }
+
+  def market: String = {
+<span class="fc" id="L42">    try{</span>
+<span class="fc" id="L43">      marketName</span>
+    }
+    catch{
+<span class="nc" id="L46">      case exp:IllegalArgumentException =&gt; logger.info(&quot;################### Market   is not present   &quot; + exp)</span>
+<span class="nc" id="L47">        return &quot;&quot;</span>
+    }
+  }
+
+  def matchingPartner: String = {
+<span class="fc" id="L52">    try{</span>
+<span class="fc" id="L53">      matchingPartnerName</span>
+    }
+    catch{
+<span class="nc" id="L56">      case exp:IllegalArgumentException =&gt; logger.info(&quot;################### Matching Partner  is not present   &quot; + exp)</span>
+<span class="nc" id="L57">        return &quot;&quot;</span>
+    }
+  }
+
+  def dataProviderFilePath(taxonomyStorePath:String): String = {
+<span class="fc" id="L62">    val  dataProviderFilePath=taxonomyStorePath + &quot;/data-providers.tsv&quot;</span>
+<span class="fc" id="L63">    logger.info(&quot;################## data provider file path is &quot; + bucketName + &quot;/&quot; + dataProviderFilePath)</span>
+<span class="fc" id="L64">    dataProviderFilePath</span>
+  }
+
+  def dataSetFilePath(taxonomyStorePath:String): String = {
+<span class="fc" id="L68">    val  dataSetFilePath=taxonomyStorePath + &quot;/dataset.tsv&quot;</span>
+<span class="fc" id="L69">    logger.info(&quot;################## data set file path is &quot; + bucketName + &quot;/&quot; + dataSetFilePath)</span>
+<span class="fc" id="L70">    dataSetFilePath</span>
+  }
+
+  def columnDescriptorFilePath(taxonomyRootPath:String,version:String,columnDescriptorFileName:String): String = {
+<span class="nc" id="L74">    val  columnDescriptorFilePath=taxonomyRootPath+version + &quot;/&quot; + columnDescriptorFileName</span>
+<span class="nc" id="L75">    logger.info(&quot;################## column Descriptor file path is &quot; + bucketName + columnDescriptorFilePath)</span>
+<span class="nc" id="L76">    columnDescriptorFilePath</span>
+  }
+
+  def displayFilePath(taxonomyRootPath:String,version:String,detsetDisplayFileName:String): String = {
+<span class="fc" id="L80">    val  displayFilePath=taxonomyRootPath+version + &quot;/&quot; + detsetDisplayFileName</span>
+<span class="fc" id="L81">    logger.info(&quot;################## Display file path is &quot; + bucketName + displayFilePath)</span>
+<span class="fc" id="L82">    displayFilePath</span>
+  }
+
+  def descriptionFilePath(taxonomyRootPath:String,version:String,descriptionFileName:String): String = {
+<span class="nc" id="L86">    val  descriptionFilePath=taxonomyRootPath+version + &quot;/&quot; + descriptionFileName</span>
+<span class="nc" id="L87">    logger.info(&quot;################## Description file path is &quot; + bucketName + descriptionFilePath)</span>
+<span class="nc" id="L88">    descriptionFilePath</span>
+  }
+
+  def bitmapFilePath(taxonomyRootPath:String,version:String,bitmapFileName:String): String = {
+<span class="fc" id="L92">    val  bitmapFilePath=taxonomyRootPath+version + &quot;/&quot; + bitmapFileName</span>
+<span class="fc" id="L93">    logger.info(&quot;################## bitmapFilePath file path is &quot; + bucketName + bitmapFilePath)</span>
+<span class="fc" id="L94">    bitmapFilePath</span>
+  }
+
+  def displayFilePath: String = {
+<span class="nc" id="L98">    try {</span>
+<span class="nc" id="L99">      System.getProperty(&quot;DisplayFilePath&quot;)</span>
+    }
+    catch{
+<span class="nc" id="L102">      case exp:IllegalArgumentException =&gt; logger.info(&quot;################### Bucket name  is not present   &quot; + exp)</span>
+<span class="nc" id="L103">        return &quot;&quot;</span>
+    }
+  }
+
+  def displayNameChangeFile: String = {
+<span class="nc" id="L108">    try {</span>
+<span class="nc" id="L109">      System.getProperty(&quot;DisplayNameChangeFile&quot;)</span>
+    }
+    catch{
+<span class="nc" id="L112">      case exp:IllegalArgumentException =&gt; logger.info(&quot;################### Bucket name  is not present   &quot; + exp)</span>
+<span class="nc" id="L113">        return &quot;&quot;</span>
+    }
+  }
+
+  def metaDataFilePath(taxonomyStorePath:String): String = {
+<span class="fc" id="L118">    val  metaDataFilePath=taxonomyStorePath+&quot;/metadata.tsv&quot;</span>
+<span class="fc" id="L119">    logger.info(&quot;################## metadata file path is &quot;+bucketName+&quot;/&quot;+metaDataFilePath)</span>
+<span class="fc" id="L120">    metaDataFilePath</span>
+  }
+
+  def datasetMetaDataFilePath(metaDataRootPath:String,currentversion:String,detsetMetaDataFileName:String): String = {
+<span class="fc" id="L124">    val  datasetMetaDataFilePath=metaDataRootPath+currentversion + &quot;/&quot; + detsetMetaDataFileName</span>
+<span class="fc" id="L125">    logger.info(&quot;################## datasetMetaData file path is &quot; + bucketName + datasetMetaDataFilePath)</span>
+<span class="fc" id="L126">    datasetMetaDataFilePath</span>
+  }
+<span class="fc" id="L128">}</span>
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

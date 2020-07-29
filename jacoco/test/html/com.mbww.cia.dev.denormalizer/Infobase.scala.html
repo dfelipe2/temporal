@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Infobase.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.denormalizer</a> &gt; <span class="el_source">Infobase.scala</span></div><h1>Infobase.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.denormalizer
+
+import com.mbww.cia.common.Spark._
+import com.mbww.cia.common.{Module, _}
+import com.mbww.cia.core.exception.EmptyFilteredDataFrameException
+import org.apache.hadoop.fs.Path
+import org.apache.spark.sql.functions.col
+import org.apache.spark.sql.{DataFrame, SaveMode}
+import org.apache.spark.storage.StorageLevel
+import org.json.JSONObject
+
+import scala.collection.parallel.ForkJoinTaskSupport
+import scala.concurrent.forkjoin
+
+<span class="fc" id="L15">class Infobase extends Module {</span>
+
+  def denormalizeWithPivoting(infobase: DataFrame,
+                              crossWalk: DataFrame,
+                              outputColumns: Seq[String],
+                              filterExpr: String,
+                              attributeId: String,
+                              dropColumns: Seq[String],
+                              outputPath: String,
+<span class="nc" id="L24">                              threadCount: Int = 1): Unit = {</span>
+
+<span class="fc" id="L26">    val fileSystem = getFileSystem(outputPath)</span>
+<span class="fc" id="L27">    val acxiom = infobase.join(crossWalk, infobase(&quot;acx_id&quot;) === crossWalk(&quot;acx_id&quot;))</span>
+<span class="pc bpc" id="L28" title="1 of 2 branches missed.">    if (acxiom.count() == 0) {</span>
+<span class="nc" id="L29">      throw EmptyFilteredDataFrameException(</span>
+<span class="nc" id="L30">        s&quot; The dataframe does not return any output after join&quot;)</span>
+    }
+<span class="fc" id="L32">    acxiom.drop(dropColumns: _*).columns.foreach(c =&gt; {</span>
+<span class="fc" id="L33">      val values = acxiom</span>
+<span class="fc" id="L34">        .uniques(col(c))</span>
+<span class="fc" id="L35">        .collect</span>
+<span class="fc" id="L36">        .map(r =&gt; r.get(0))</span>
+
+<span class="fc" id="L38">      val pValues = values.par</span>
+<span class="fc" id="L39">      pValues.tasksupport = new ForkJoinTaskSupport(new forkjoin.ForkJoinPool(threadCount))</span>
+<span class="pc bpc" id="L40" title="1 of 2 branches missed.">      pValues.foreach(v =&gt; {</span>
+<span class="fc" id="L41">        val attributeName = s&quot;${c}_${v}&quot;</span>
+<span class="fc" id="L42">        val outputAttribute = concatToPath(outputPath, s&quot;$attributeId=$attributeName&quot;)</span>
+<span class="fc" id="L43">          acxiom</span>
+<span class="fc" id="L44">            .filter(acxiom(c) === v)</span>
+<span class="fc" id="L45">            .select(outputColumns.map(c =&gt; col(c)): _*)</span>
+<span class="fc" id="L46">            .write</span>
+<span class="fc" id="L47">            .mode(SaveMode.Overwrite)</span>
+<span class="fc" id="L48">            .option(&quot;mapreduce.fileoutputcommitter.algorithm.version&quot;, &quot;2&quot;)</span>
+<span class="fc" id="L49">            .parquet(outputAttribute)</span>
+      })
+    })
+  }
+
+  def denormalizeWithoutPivoting(acxiom: DataFrame,
+                                 crossWalk: DataFrame,
+                                 outputColumns: Seq[String],
+                                 filterExpr: String,
+                                 attributeId: String,
+                                 dropColumns: Seq[String],
+                                 outputPath: String,
+<span class="nc" id="L61">                                 threadCount: Int = 1): Unit = {</span>
+
+<span class="nc" id="L63">    val fileSystem = getFileSystem(outputPath)</span>
+
+<span class="nc" id="L65">    val columns = acxiom.drop(dropColumns: _*).columns</span>
+<span class="nc" id="L66">    val pColumns = columns.par</span>
+<span class="nc" id="L67">    pColumns.tasksupport = new ForkJoinTaskSupport(new forkjoin.ForkJoinPool(threadCount))</span>
+<span class="nc" id="L68">    pColumns.foreach(c =&gt; {</span>
+<span class="nc" id="L69">      val outputAttribute = concatToPath(outputPath, s&quot;$attributeId=$c&quot;)</span>
+
+<span class="nc bnc" id="L71" title="All 2 branches missed.">      if (!fileSystem.exists(new Path(concatToPath(outputAttribute, &quot;_SUCCESS&quot;)))) {</span>
+<span class="nc" id="L72">        acxiom</span>
+<span class="nc" id="L73">          .filter(acxiom(c) === &quot;1&quot;)</span>
+<span class="nc" id="L74">          .select(outputColumns.map(c =&gt; col(c)): _*)</span>
+<span class="nc" id="L75">          .write</span>
+<span class="nc" id="L76">          .mode(SaveMode.Overwrite)</span>
+<span class="nc" id="L77">          .option(&quot;mapreduce.fileoutputcommitter.algorithm.version&quot;, &quot;2&quot;)</span>
+<span class="nc" id="L78">          .parquet(outputAttribute)</span>
+      }
+    })
+  }
+
+  def generateDenormalized(infobasePath: String,
+                           crosswalkPaths: String,
+                           outputColumns: Seq[String],
+                           filterExpr: String,
+                           attributeId: String,
+                           dropColumns: Seq[String],
+                           pivotValues: Boolean,
+                           outputPath: String,
+<span class="pc" id="L91">                           threadCount: Int = 1): Unit = {</span>
+
+<span class="pc bpc" id="L93" title="1 of 2 branches missed.">    val infobase = if (!filterExpr.isEmpty) {</span>
+<span class="nc" id="L94">      spark.read.parquet(infobasePath).filter(filterExpr).persist(StorageLevel.MEMORY_AND_DISK)</span>
+    } else {
+<span class="fc" id="L96">      spark.read.parquet(infobasePath)</span>
+    }
+<span class="fc" id="L98">    val crossWalk = spark.read.parquet(crosswalkPaths)</span>
+
+<span class="pc bpc" id="L100" title="1 of 2 branches missed.">    if (pivotValues) {</span>
+<span class="fc" id="L101">      denormalizeWithPivoting(</span>
+<span class="fc" id="L102">        infobase,</span>
+<span class="fc" id="L103">        crossWalk,</span>
+<span class="fc" id="L104">        outputColumns,</span>
+<span class="fc" id="L105">        filterExpr,</span>
+<span class="fc" id="L106">        attributeId,</span>
+<span class="fc" id="L107">        dropColumns,</span>
+<span class="fc" id="L108">        outputPath,</span>
+<span class="fc" id="L109">        threadCount)</span>
+    } else {
+<span class="nc" id="L111">      denormalizeWithoutPivoting(</span>
+<span class="nc" id="L112">        infobase,</span>
+<span class="nc" id="L113">        crossWalk,</span>
+<span class="nc" id="L114">        outputColumns,</span>
+<span class="nc" id="L115">        filterExpr,</span>
+<span class="nc" id="L116">        attributeId,</span>
+<span class="nc" id="L117">        dropColumns,</span>
+<span class="nc" id="L118">        outputPath,</span>
+<span class="nc" id="L119">        threadCount)</span>
+    }
+  }
+
+  def generate(infobasePaths: Seq[String],
+               crosswalkPath: String,
+               outputColumns: Seq[String],
+               filterExpr: String,
+               attributeId: String,
+               pivotValues: Boolean,
+               dropColumns: Seq[String],
+               outputPath: String,
+<span class="nc" id="L131">               threadCount: Int = 1): Unit = {</span>
+
+<span class="pc bpc" id="L133" title="1 of 2 branches missed.">    infobasePaths.foreach(infobasePath =&gt; {</span>
+<span class="fc" id="L134">      generateDenormalized(</span>
+<span class="fc" id="L135">        infobasePath,</span>
+<span class="fc" id="L136">        crosswalkPath,</span>
+<span class="fc" id="L137">        outputColumns,</span>
+<span class="fc" id="L138">        filterExpr,</span>
+<span class="fc" id="L139">        attributeId,</span>
+<span class="fc" id="L140">        dropColumns,</span>
+<span class="fc" id="L141">        pivotValues,</span>
+<span class="fc" id="L142">        outputPath,</span>
+<span class="fc" id="L143">        threadCount)</span>
+    })
+  }
+
+  override def run(args: JSONObject): Unit = {
+
+<span class="fc" id="L149">    val infobasePaths = args.getSeq[String](&quot;infobase_paths&quot;)</span>
+<span class="fc" id="L150">    val crosswalkPath = args.getString(&quot;crosswalk_paths&quot;)</span>
+<span class="fc" id="L151">    val outputColumns = args.getSeq[String](&quot;output_columns&quot;)</span>
+<span class="fc" id="L152">    val outputPath = args.getString(&quot;output_path&quot;)</span>
+<span class="fc" id="L153">    val acxiomFilterExpr = args.getString(&quot;acxiom_filter_expr&quot;)</span>
+<span class="fc" id="L154">    val partitionAttributeId = args.getString(&quot;partition_attribute_id&quot;)</span>
+<span class="fc" id="L155">    val pivotValues = args.getBoolean(&quot;pivot_values&quot;)</span>
+<span class="fc" id="L156">    val dropColumns = args.getSeq[String](&quot;drop_columns&quot;)</span>
+<span class="fc" id="L157">    val threadCount = args.getOrElse[Int](&quot;thread_count&quot;, 1)</span>
+
+<span class="fc" id="L159">    generate(</span>
+<span class="fc" id="L160">      infobasePaths,</span>
+<span class="fc" id="L161">      crosswalkPath,</span>
+<span class="fc" id="L162">      outputColumns,</span>
+<span class="fc" id="L163">      acxiomFilterExpr,</span>
+<span class="fc" id="L164">      partitionAttributeId,</span>
+<span class="fc" id="L165">      pivotValues,</span>
+<span class="fc" id="L166">      dropColumns,</span>
+<span class="fc" id="L167">      outputPath,</span>
+<span class="fc" id="L168">      threadCount)</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

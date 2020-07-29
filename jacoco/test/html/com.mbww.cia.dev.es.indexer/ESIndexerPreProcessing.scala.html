@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ESIndexerPreProcessing.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.es.indexer</a> &gt; <span class="el_source">ESIndexerPreProcessing.scala</span></div><h1>ESIndexerPreProcessing.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.es.indexer
+
+import com.mbww.cia.common.Spark.{spark =&gt; ciaSpark}
+import com.mbww.cia.common.Module
+import com.mbww.cia.common._
+import com.mbww.cia.core.exception.EmptyFilteredDataFrameException
+import org.apache.spark.sql.{Column, DataFrame, SparkSession, functions}
+import org.apache.spark.sql.functions.{expr, _}
+import org.apache.spark.sql.types.LongType
+import org.json.JSONObject
+
+/**
+  * Elastic Search Indexer Pre Processing params
+  * This class holds the parameters for the pre-processing pipeline.
+  *
+  * @param inputPath       parquet path
+  * @param metadataPath    json path
+  * @param outputPath      parquet path
+  * @param mbidName        mbid field name
+  * @param hhidName        hhid field name
+  * @param dropColumns     columns to drop from input
+  * @param writePartitions number of partitions of the output file
+  */
+<span class="nc bnc" id="L24" title="All 72 branches missed.">case class ESIndexerPreProcessingParams(inputPath: String = &quot;&quot;,</span>
+<span class="nc" id="L25">                                        metadataPath: String = &quot;&quot;,</span>
+<span class="nc" id="L26">                                        outputPath: String = &quot;&quot;,</span>
+<span class="nc" id="L27">                                        mbidName: String = &quot;consumer_pel&quot;,</span>
+<span class="nc" id="L28">                                        hhidName: Option[String] = None,</span>
+<span class="nc" id="L29">                                        dropColumns: String = &quot;zip, percent_sample, address_pel&quot;,</span>
+<span class="nc" id="L30">                                        writePartitions: Int = 20,</span>
+<span class="nc" id="L31">                                        modeJoin: String = &quot;&quot;,</span>
+<span class="nc" id="L32">                                        filterExpr: String =&quot;&quot;) {</span>
+
+<span class="nc" id="L34">  def withInputPath(value: String): ESIndexerPreProcessingParams = this.copy(inputPath = value)</span>
+
+<span class="nc" id="L36">  def withMetadataPath(value: String): ESIndexerPreProcessingParams = this.copy(metadataPath = value)</span>
+
+<span class="nc" id="L38">  def withOutputPath(value: String): ESIndexerPreProcessingParams = this.copy(outputPath = value)</span>
+
+<span class="nc" id="L40">  def withMbidName(value: String): ESIndexerPreProcessingParams = this.copy(mbidName = value)</span>
+
+  def withHhidName(value: String): ESIndexerPreProcessingParams =
+<span class="nc bnc" id="L43" title="All 2 branches missed.">    this.copy(hhidName = if (value.trim.nonEmpty) Some(value) else None)</span>
+
+<span class="nc" id="L45">  def withDropColumns(value: String): ESIndexerPreProcessingParams = this.copy(dropColumns = value)</span>
+
+<span class="nc" id="L47">  def withWritePartitions(value: Int): ESIndexerPreProcessingParams = this.copy(writePartitions = value)</span>
+
+<span class="nc" id="L49">  def withModeJoin(value: String): ESIndexerPreProcessingParams = this.copy(modeJoin = value)</span>
+
+<span class="nc" id="L51">  def withFilterExpr(value: String): ESIndexerPreProcessingParams = this.copy(filterExpr = value)</span>
+}
+
+/**
+  * Elastic Search Indexer Pre-processing.
+  *
+  * This class contains the necessary logic to
+  * pre-pare datasets prior indexing to elastic search.
+  */
+<span class="nc" id="L60">class ESIndexerPreProcessing extends Module {</span>
+
+<span class="nc" id="L62">  val spark: SparkSession = ciaSpark</span>
+
+  import spark.implicits._
+
+  private def process(params: ESIndexerPreProcessingParams): Unit = {
+<span class="nc" id="L67">    val input = loadInput(params.inputPath, params.dropColumns,params)</span>
+<span class="nc" id="L68">    val metadata = loadMetadata(params.metadataPath)</span>
+
+<span class="nc" id="L70">    val unpivot = unPivotInput(input, params)</span>
+<span class="nc" id="L71">    val attributeIds = getAttributeIds(unpivot, metadata, params)</span>
+<span class="nc" id="L72">    val grouped = groupConsumers(attributeIds, params)</span>
+
+<span class="nc" id="L74">    persistPreprocessing(grouped, params)</span>
+  }
+
+  private def loadInput(path: String, dropColumns: String, params: ESIndexerPreProcessingParams): DataFrame = {
+<span class="nc" id="L78">    val dropCols = dropColumns.split(&quot;,&quot;).toSeq</span>
+<span class="nc bnc" id="L79" title="All 2 branches missed.">    val readDF = if (!params.filterExpr.isEmpty) {</span>
+<span class="nc" id="L80">      val filteredDF = spark.read.parquet(path).drop(dropCols: _*).filter(params.filterExpr)</span>
+<span class="nc bnc" id="L81" title="All 2 branches missed.">      if (filteredDF.count() == 0) {</span>
+<span class="nc" id="L82">        throw EmptyFilteredDataFrameException(</span>
+<span class="nc" id="L83">          s&quot; The filter expression  $params.filterExpr does not return any output on the path $path&quot;)</span>
+      }
+<span class="nc" id="L85">      filteredDF</span>
+
+    } else {
+<span class="nc" id="L88">      spark.read.parquet(path).drop(dropCols: _*)</span>
+    }
+<span class="nc" id="L90">    readDF</span>
+  }
+
+  private def loadMetadata(path: String): DataFrame = {
+<span class="nc" id="L94">    spark.read.json(path).select(explode($&quot;mapping&quot;))</span>
+<span class="nc" id="L95">      .withColumnRenamed(&quot;col&quot;, &quot;mapping&quot;)</span>
+<span class="nc" id="L96">      .select($&quot;mapping.attr&quot;.as(&quot;attribute&quot;),</span>
+<span class="nc" id="L97">        $&quot;mapping.id&quot;.as(&quot;att_id&quot;)).cache()</span>
+  }
+
+  private def unPivotInput(df: DataFrame, params: ESIndexerPreProcessingParams): DataFrame = {
+    //slice number
+<span class="nc bnc" id="L102" title="All 2 branches missed.">    val sliceNumber = if (params.hhidName.isEmpty) {</span>
+<span class="nc" id="L103">      1</span>
+    } else {
+<span class="nc" id="L105">      2</span>
+    }
+    //All but the first two (consumer and household pel)
+<span class="nc" id="L108">    val desiredColumns = df.columns.slice(sliceNumber, df.columns.length)</span>
+    //create a expression string with the desired columns
+<span class="nc" id="L110">    val colString = desiredColumns.map(name =&gt; s&quot;'$name', $name&quot;).mkString(&quot;,&quot;)</span>
+    //the number of columns to stack
+<span class="nc" id="L112">    val cols = desiredColumns.length</span>
+
+    //Unpivot columns
+<span class="nc" id="L115">    val selectIds = params.hhidName match {</span>
+<span class="nc bnc" id="L116" title="All 2 branches missed.">      case Some(name) =&gt;</span>
+<span class="nc" id="L117">        Seq(col(params.mbidName), col(name))</span>
+<span class="nc bnc" id="L118" title="All 2 branches missed.">      case None =&gt;</span>
+<span class="nc" id="L119">        Seq(col(params.mbidName))</span>
+    }
+<span class="nc bnc" id="L121" title="All 6 branches missed.">    val fullSelect = if (params.modeJoin == &quot;textual&quot;) {</span>
+<span class="nc" id="L122">      selectIds :+ expr(s&quot;stack($cols, $colString) as (value, attribute)&quot;)</span>
+    }
+    else {
+<span class="nc" id="L125">      selectIds :+ expr(s&quot;stack($cols, $colString) as (attribute, value)&quot;)</span>
+    }
+<span class="nc" id="L127">    val pivotSelect = selectIds :+ lower(concat_ws(&quot;_&quot;, $&quot;attribute&quot;, $&quot;value&quot;)).as(&quot;attribute&quot;)</span>
+<span class="nc bnc" id="L128" title="All 6 branches missed.">    val dfpivot = if (params.modeJoin == &quot;pivot&quot;) {</span>
+<span class="nc" id="L129">      df.select(fullSelect: _*).select(pivotSelect: _*).where(&quot;attribute is not null&quot;)</span>
+    }
+    else {
+<span class="nc" id="L132">      df.select(fullSelect: _*).where(&quot;value is not null&quot;)</span>
+    }
+<span class="nc" id="L134">    dfpivot</span>
+
+
+  }
+
+  private def getAttributeIds(unpivot: DataFrame, metadata: DataFrame, params: ESIndexerPreProcessingParams): DataFrame = {
+
+<span class="nc" id="L141">    val selectIds = params.hhidName match {</span>
+<span class="nc bnc" id="L142" title="All 2 branches missed.">      case Some(name) =&gt;</span>
+<span class="nc" id="L143">        Seq(col(s&quot;u.${params.mbidName}&quot;), col(s&quot;u.$name&quot;))</span>
+<span class="nc bnc" id="L144" title="All 2 branches missed.">      case None =&gt;</span>
+<span class="nc" id="L145">        Seq(col(s&quot;u.${params.mbidName}&quot;))</span>
+    }
+
+<span class="nc" id="L148">    val fullSelect = selectIds :+ $&quot;m.att_id&quot;.cast(LongType).as(&quot;attributes&quot;)</span>
+
+<span class="nc" id="L150">    unpivot.as(&quot;u&quot;).join(metadata.as(&quot;m&quot;),</span>
+<span class="nc" id="L151">      $&quot;u.attribute&quot; === $&quot;m.attribute&quot;)</span>
+<span class="nc" id="L152">      .select(fullSelect: _*)</span>
+
+  }
+
+  private def groupConsumers(attributeIds: DataFrame, params: ESIndexerPreProcessingParams): DataFrame = {
+<span class="nc" id="L157">    val groupBy = params.hhidName match {</span>
+<span class="nc bnc" id="L158" title="All 2 branches missed.">      case Some(name) =&gt;</span>
+<span class="nc" id="L159">        Seq(col(params.mbidName), col(name))</span>
+<span class="nc bnc" id="L160" title="All 2 branches missed.">      case None =&gt;</span>
+<span class="nc" id="L161">        Seq(col(params.mbidName))</span>
+    }
+
+<span class="nc" id="L164">    attributeIds.groupBy(groupBy: _*).agg(collect_set($&quot;attributes&quot;).as(&quot;attributes&quot;))</span>
+
+  }
+
+  private def persistPreprocessing(df: DataFrame, params: ESIndexerPreProcessingParams): Unit = {
+<span class="nc" id="L169">    df.coalesce(params.writePartitions).write.mode(&quot;overwrite&quot;).parquet(params.outputPath)</span>
+  }
+
+  override def run(args: JSONObject): Unit = {
+<span class="nc" id="L173">    val defaults = ESIndexerPreProcessingParams()</span>
+<span class="nc" id="L174">    val params = ESIndexerPreProcessingParams()</span>
+<span class="nc" id="L175">      .withInputPath(args.getString(&quot;parquet_input_path&quot;))</span>
+<span class="nc" id="L176">      .withMetadataPath(args.getString(&quot;metadata_path&quot;))</span>
+<span class="nc" id="L177">      .withOutputPath(args.getString(&quot;output_path&quot;))</span>
+<span class="nc" id="L178">      .withMbidName(args.getOrElse[String](&quot;mbid&quot;, defaults.mbidName))</span>
+<span class="nc" id="L179">      .withHhidName(args.getOrElse[String](&quot;hhid&quot;, &quot;&quot;))</span>
+<span class="nc" id="L180">      .withDropColumns(args.getOrElse[String](&quot;drop_columns&quot;, defaults.dropColumns))</span>
+<span class="nc" id="L181">      .withWritePartitions(args.getOrElse[Int](&quot;write_partitions&quot;, defaults.writePartitions))</span>
+<span class="nc" id="L182">      .withModeJoin(args.getOrElse[String](&quot;mode_join&quot;, defaults.modeJoin))</span>
+<span class="nc" id="L183">      .withFilterExpr(args.getOrElse[String](&quot;filter_expression&quot;, defaults.filterExpr))</span>
+
+<span class="nc" id="L185">    process(params)</span>
+  }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

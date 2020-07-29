@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SimmonsProfileReport.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.profile.reports</a> &gt; <span class="el_source">SimmonsProfileReport.scala</span></div><h1>SimmonsProfileReport.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.profile.reports
+
+import com.mbww.cia.common.Spark._
+import com.mbww.cia.common.utility.Tools.ProfileReportsETL
+import com.mbww.cia.common.{Module, _}
+import org.apache.hadoop.fs.Path
+import org.apache.spark.sql.{DataFrame, SaveMode}
+import org.apache.spark.sql.functions.{col, lit, row_number}
+import org.json.JSONObject
+import org.apache.spark.sql.functions.monotonically_increasing_id
+
+<span class="fc" id="L12">class SimmonsProfileReport extends Module {</span>
+
+<span class="pc bpc" id="L14" title="49 of 50 branches missed.">  case class ProfileInfo(batchMaximum: Long,</span>
+<span class="pc" id="L15">                         batchSize: Long,</span>
+<span class="pc" id="L16">                         profileSourceTmpPath: String,</span>
+<span class="pc" id="L17">                         profileSourceIdTmpPath: String,</span>
+<span class="pc" id="L18">                         profileSourceBatchesTmpPath: String</span>
+                        )
+
+  def generate(surveyResponseDictPath: String,
+               infobasePath: String,
+               punchCodeInputPath: String,
+               simmonsCwPath: String,
+               desiredPunchcodesPath: String,
+               outputPath: String,
+               profileInfo: ProfileInfo
+              ): Unit = {
+
+<span class="fc" id="L30">    val surveyResponseDict = spark.read.load(surveyResponseDictPath)</span>
+<span class="fc" id="L31">    val infobase = spark.read.load(infobasePath)</span>
+<span class="fc" id="L32">    val punchCodeInput = spark.read.load(punchCodeInputPath)</span>
+<span class="fc" id="L33">    val simmonsCw = spark.read.load(simmonsCwPath)</span>
+<span class="fc" id="L34">    val desiredPunchcodes = spark.read.option(&quot;header&quot;, &quot;false&quot;).csv(desiredPunchcodesPath).withColumnRenamed(&quot;_c0&quot;, &quot;punch_code&quot;)</span>
+<span class="fc" id="L35">    val reducedCw = simmonsCw</span>
+<span class="fc" id="L36">      .filter(!col(&quot;consumer_pel&quot;).like(&quot;UNMATCHED&quot;))</span>
+<span class="fc" id="L37">      .filter(col(&quot;consumer_pel&quot;).like(&quot;XY%&quot;))</span>
+<span class="fc" id="L38">      .filter(col(&quot;simmons_panelist_id&quot;).isNotNull)</span>
+<span class="fc" id="L39">      .filter(col(&quot;match_level&quot;).isNotNull)</span>
+<span class="fc" id="L40">      .filter(col(&quot;consumer_pel&quot;).isNotNull)</span>
+<span class="fc" id="L41">      .filter(col(&quot;match_level&quot;).between(0, 27))</span>
+<span class="fc" id="L42">    val responses = surveyResponseDict</span>
+<span class="fc" id="L43">      .join(punchCodeInput, surveyResponseDict.col(&quot;punch_code&quot;) === punchCodeInput.col(&quot;punch_code&quot;), &quot;inner&quot;)</span>
+<span class="fc" id="L44">      .drop(punchCodeInput.col(&quot;punch_code&quot;))</span>
+<span class="fc" id="L45">      .select(&quot;punch_code&quot;, &quot;simmons_panelist_id&quot;)</span>
+<span class="fc" id="L46">    var fileSystem = getFileSystem(profileInfo.profileSourceTmpPath)</span>
+<span class="fc" id="L47">    val responseWrite =</span>
+<span class="fc" id="L48">      responses</span>
+<span class="fc" id="L49">        .join(desiredPunchcodes, responses.col(&quot;punch_code&quot;) === desiredPunchcodes.col(&quot;punch_code&quot;), &quot;inner&quot;)</span>
+<span class="fc" id="L50">        .join(reducedCw, responses.col(&quot;simmons_panelist_id&quot;) === reducedCw.col(&quot;simmons_panelist_id&quot;), &quot;inner&quot;)</span>
+<span class="fc" id="L51">        .join(infobase, reducedCw.col(&quot;consumer_pel&quot;) === infobase.col(&quot;stringId&quot;), &quot;inner&quot;)</span>
+<span class="fc" id="L52">        .drop(reducedCw.col(&quot;consumer_pel&quot;))</span>
+<span class="fc" id="L53">        .drop(infobase.col(&quot;stringId&quot;))</span>
+<span class="fc" id="L54">        .drop(desiredPunchcodes.col(&quot;punch_code&quot;))</span>
+<span class="fc" id="L55">        .drop(reducedCw.col(&quot;simmons_panelist_id&quot;))</span>
+<span class="pc bpc" id="L56" title="1 of 2 branches missed.">    if (!fileSystem.exists(new Path(concatToPath(profileInfo.profileSourceTmpPath, &quot;_SUCCESS&quot;)))) {</span>
+<span class="fc" id="L57">      responseWrite</span>
+<span class="fc" id="L58">        .write</span>
+<span class="fc" id="L59">        .mode(SaveMode.Overwrite)</span>
+<span class="fc" id="L60">        .parquet(profileInfo.profileSourceTmpPath)</span>
+    }
+<span class="fc" id="L62">    fileSystem = getFileSystem(profileInfo.profileSourceIdTmpPath)</span>
+<span class="pc bpc" id="L63" title="1 of 2 branches missed.">    if (!fileSystem.exists(new Path(concatToPath(profileInfo.profileSourceIdTmpPath, &quot;_SUCCESS&quot;)))) {</span>
+<span class="fc" id="L64">      spark.read.load(profileInfo.profileSourceTmpPath)</span>
+<span class="fc" id="L65">        .withColumn(&quot;rowId&quot;, monotonically_increasing_id()).write.mode(&quot;overwrite&quot;)</span>
+<span class="fc" id="L66">        .parquet(profileInfo.profileSourceIdTmpPath)</span>
+    }
+<span class="fc" id="L68">    val valuesDistinct = desiredPunchcodes.select(&quot;punch_code&quot;).distinct().rdd.map(r =&gt; r(0)).collect().map(_.toString)</span>
+<span class="fc" id="L69">    val tmpWriter = (df: DataFrame) =&gt; {</span>
+<span class="fc" id="L70">      df.write</span>
+<span class="fc" id="L71">        .mode(SaveMode.Append)</span>
+<span class="fc" id="L72">        .parquet(profileInfo.profileSourceBatchesTmpPath)</span>
+    }
+<span class="fc" id="L74">    val profilesSrc = spark.read.parquet(profileInfo.profileSourceIdTmpPath)</span>
+<span class="fc" id="L75">    profilesSrc.batchPivotSql(valuesDistinct, profileInfo.batchMaximum, profileInfo.batchSize, tmpWriter)</span>
+<span class="fc" id="L76">    val profilesReportPre = spark.read.load(profileInfo.profileSourceBatchesTmpPath)</span>
+<span class="fc" id="L77">    profilesReportPre.createOrReplaceTempView(&quot;profilesfinal&quot;)</span>
+<span class="fc" id="L78">    var rowsSQL = &quot;&quot;</span>
+<span class="fc" id="L79">    for (col &lt;- valuesDistinct) {</span>
+<span class="fc" id="L80">      val caseString = &quot; ,cast (CASE WHEN SUM(`&quot; + col + &quot;`)==0 THEN 0 ELSE 1 END AS Byte) AS `&quot; + col + &quot;` &quot;</span>
+<span class="fc" id="L81">      rowsSQL += caseString</span>
+    }
+<span class="fc" id="L83">    val sqlPrefix = &quot;SELECT CAST(numericId as bigint) as numericId &quot;</span>
+<span class="fc" id="L84">    val sqlSufix = &quot; FROM profilesfinal group by numericId&quot;</span>
+<span class="fc" id="L85">    val fullSQL = sqlPrefix + rowsSQL + sqlSufix</span>
+<span class="fc" id="L86">    val result = spark.sql(fullSQL)</span>
+<span class="fc" id="L87">    result</span>
+<span class="fc" id="L88">      .write</span>
+<span class="fc" id="L89">      .mode(SaveMode.Overwrite)</span>
+<span class="fc" id="L90">      .save(outputPath)</span>
+  }
+  override def run(args: JSONObject): Unit = {
+
+<span class="fc" id="L94">    val surveyResponseDictPath = args.getString(&quot;survey_response_dict_path&quot;)</span>
+<span class="fc" id="L95">    val infobasePath = args.getString(&quot;infobase_path&quot;)</span>
+<span class="fc" id="L96">    val punchCodeInputPath = args.getString(&quot;punch_code_input_path&quot;)</span>
+<span class="fc" id="L97">    val simmonsCwPath = args.getString(&quot;simmons_cw_path&quot;)</span>
+<span class="fc" id="L98">    val desiredPunchcodesPath = args.getString(&quot;desired_punchcodes_path&quot;)</span>
+<span class="fc" id="L99">    val outputPath = args.getString(&quot;output_path&quot;)</span>
+<span class="fc" id="L100">    val batchMaximum = args.getOrElse[Long](&quot;batch_maximum&quot;, 1)</span>
+<span class="fc" id="L101">    val batchSize = args.getOrElse[Long](&quot;batch_size&quot;, 1)</span>
+<span class="fc" id="L102">    val profileSourceTmpPath = args.getString(&quot;profile_source_tmp_path&quot;)</span>
+<span class="fc" id="L103">    val profileSourceIdTmpPath = args.getString(&quot;profile_source_id_tmp_path&quot;)</span>
+<span class="fc" id="L104">    val profileSourceBatchesTmpPath = args.getString(&quot;profile_source_batches_tmp_path&quot;)</span>
+
+<span class="fc" id="L106">    val profileInfo = ProfileInfo(batchMaximum,batchSize,profileSourceTmpPath,profileSourceIdTmpPath,profileSourceBatchesTmpPath)</span>
+
+
+<span class="fc" id="L109">    generate(surveyResponseDictPath,</span>
+<span class="fc" id="L110">      infobasePath,</span>
+<span class="fc" id="L111">      punchCodeInputPath,</span>
+<span class="fc" id="L112">      simmonsCwPath,</span>
+<span class="fc" id="L113">      desiredPunchcodesPath,</span>
+<span class="fc" id="L114">      outputPath,</span>
+<span class="fc" id="L115">      profileInfo</span>
+    )
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

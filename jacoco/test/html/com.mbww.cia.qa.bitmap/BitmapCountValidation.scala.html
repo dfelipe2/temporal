@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>BitmapCountValidation.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.qa.bitmap</a> &gt; <span class="el_source">BitmapCountValidation.scala</span></div><h1>BitmapCountValidation.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.qa.bitmap
+
+import java.io.{ByteArrayOutputStream, FileNotFoundException, InputStream, ObjectOutputStream}
+
+import com.amazonaws.services.s3.AmazonS3
+import com.amazonaws.services.s3.model.GetObjectRequest
+import com.mbww.cia.qa.utils.UtilsFunction.getLinesFromFile
+import com.mbww.cia.qa.utils.{BitMapUtility, FileData, Setup}
+import org.apache.commons.io.IOUtils
+import org.json.JSONObject
+import org.slf4j.LoggerFactory
+import com.mbww.cia.common.{Module, _}
+
+import scala.collection.parallel.ForkJoinTaskSupport
+import scala.concurrent.forkjoin
+
+<span class="fc" id="L17">class BitmapCountValidation extends Module {</span>
+<span class="fc" id="L18">  val logger = LoggerFactory.getLogger(&quot;CIA Pipeline&quot;)</span>
+<span class="pc bnc" id="L19" title="All 2 branches missed.">  def mbidCountValidation(awsS3Client: AmazonS3,setup:Setup, dataSetFileData: Any, delimiter: String = &quot;\t&quot;): Boolean = {</span>
+<span class="fc" id="L20">    val dataSetType = dataSetFileData.toString.split(delimiter)(3)</span>
+<span class="pc bpc" id="L21" title="1 of 2 branches missed.">    if (!dataSetType.equals(&quot;Custom Attr&quot;))</span>
+    {
+<span class="pc" id="L23">      try {</span>
+
+<span class="fc" id="L25">        val bitmapFilePath = setup.bitmapFilePath(dataSetFileData.toString.split(delimiter)(6), dataSetFileData.toString.split(delimiter)(8), dataSetFileData.toString.split(delimiter)(13)).drop(1)</span>
+<span class="fc" id="L26">        val lineIterator = getLinesFromFile(&quot;s3://&quot; + setup.bucketName + &quot;/&quot; + bitmapFilePath, awsS3Client)</span>
+<span class="fc" id="L27">        lineIterator.drop(1)</span>
+<span class="pc bpc" id="L28" title="1 of 2 branches missed.">        for (i &lt;- lineIterator) {</span>
+<span class="fc" id="L29">          val data = i.split(delimiter)</span>
+<span class="fc" id="L30">          var mbidBitmapPath = dataSetFileData.toString.split(delimiter)(4).drop(1) + dataSetFileData.toString.split(delimiter)(8) + dataSetFileData.toString.split(delimiter)(10) + data(2)</span>
+<span class="fc" id="L31">          var fileLists = BitMapUtility.getFilePathfromS3V2(setup.bucketName, mbidBitmapPath, awsS3Client)</span>
+<span class="pc bpc" id="L32" title="1 of 2 branches missed.">          if (!(fileLists.length == 1)) {</span>
+<span class="nc" id="L33">            fileLists.foreach {</span>
+<span class="nc" id="L34">              println</span>
+            }
+<span class="nc" id="L36">            logger.info(&quot;########################### contains more than 1 files #######################&quot; + mbidBitmapPath)</span>
+<span class="nc" id="L37">            return false</span>
+          }
+<span class="pc bpc" id="L39" title="1 of 2 branches missed.">          fileLists.foreach { x =&gt;</span>
+<span class="pc bpc" id="L40" title="1 of 2 branches missed.">            if (!(validateBitmap(x, setup.bucketName, awsS3Client, data(3)))) {</span>
+<span class="nc" id="L41">              return false</span>
+            }
+          }
+
+        }
+<span class="fc" id="L46">        true</span>
+      }
+      catch {
+        case exp: FileNotFoundException =&gt;
+<span class="nc" id="L50">          logger.info(&quot;################### file is not present   &quot; + exp)</span>
+<span class="nc" id="L51">          return false</span>
+        case exp: ArrayIndexOutOfBoundsException =&gt;
+<span class="nc" id="L53">          logger.info(&quot;################### Array Index OutOf Bounds Exception  &quot; + exp)</span>
+<span class="nc" id="L54">          return false</span>
+        case exp: NullPointerException =&gt;
+<span class="nc" id="L56">          logger.info(&quot;null pointer  &quot; + exp)</span>
+<span class="nc" id="L57">          return false</span>
+      }
+    }
+    else
+<span class="nc" id="L61">      logger.info(&quot;------------------ Bitmap File  will not be tested for custom Attr--------------------------&quot;)</span>
+<span class="fc" id="L62">    true</span>
+  }
+
+<span class="pc bnc" id="L65" title="All 2 branches missed.">  def hhidCountValidation(awsS3Client: AmazonS3,setup:Setup, dataSetFileData: Any, delimiter: String = &quot;\t&quot;): Boolean = {</span>
+<span class="fc" id="L66">    val dataSetType = dataSetFileData.toString.split(delimiter)(3)</span>
+<span class="pc bpc" id="L67" title="1 of 2 branches missed.">    if (!dataSetType.equals(&quot;Custom Attr&quot;))</span>
+    {
+<span class="pc bpc" id="L69" title="3 of 8 branches missed.">      if (!(setup.market.toUpperCase.equals(&quot;UK&quot;) || setup.market.toUpperCase.equals(&quot;AU&quot;)|| setup.market.toUpperCase.equals(&quot;MX&quot;)|| setup.market.toUpperCase.equals(&quot;JP&quot;))) {</span>
+<span class="nc" id="L70">        try {</span>
+
+<span class="fc" id="L72">          val bitmapFilePath = setup.bitmapFilePath(dataSetFileData.toString.split(delimiter)(6), dataSetFileData.toString.split(delimiter)(8), dataSetFileData.toString.split(delimiter)(13)).drop(1)</span>
+<span class="fc" id="L73">          val lineIterator = getLinesFromFile(&quot;s3://&quot; + setup.bucketName + &quot;/&quot; + bitmapFilePath, awsS3Client)</span>
+<span class="fc" id="L74">          lineIterator.drop(1)</span>
+<span class="pc bpc" id="L75" title="1 of 2 branches missed.">          for (i &lt;- lineIterator) {</span>
+
+<span class="fc" id="L77">            val data = i.split(delimiter)</span>
+<span class="fc" id="L78">            var hhidBitmapPath = dataSetFileData.toString.split(delimiter)(4).drop(1) + dataSetFileData.toString.split(delimiter)(8) + dataSetFileData.toString.split(delimiter)(11) + data(4)</span>
+
+<span class="fc" id="L80">            var fileLists = BitMapUtility.getFilePathfromS3V2(setup.bucketName, hhidBitmapPath, awsS3Client)</span>
+<span class="pc bpc" id="L81" title="1 of 2 branches missed.">            if (!(fileLists.length == 1)) {</span>
+<span class="nc" id="L82">              fileLists.foreach {</span>
+<span class="nc" id="L83">                println</span>
+              }
+<span class="nc" id="L85">              logger.info(&quot;########################### contains more than 1 files #######################&quot; + fileLists.length)</span>
+<span class="nc" id="L86">              return false</span>
+            }
+<span class="pc bpc" id="L88" title="1 of 2 branches missed.">            fileLists.par.foreach { x =&gt;</span>
+<span class="pc bpc" id="L89" title="1 of 2 branches missed.">              if (!(validateBitmap(x, setup.bucketName,setup awsS3Client, data(5)))) {</span>
+<span class="nc" id="L90">                         return false</span>
+              }
+            }
+
+          }
+<span class="fc" id="L95">          return true</span>
+        }
+        catch {
+          case exp: FileNotFoundException =&gt;
+<span class="nc" id="L99">            logger.info(&quot;################### file is not present   &quot; + exp)</span>
+<span class="nc" id="L100">            return false</span>
+          case exp: ArrayIndexOutOfBoundsException =&gt;
+<span class="nc" id="L102">            logger.info(&quot;################### Array Index OutOf Bounds Exception  &quot; + exp)</span>
+<span class="nc" id="L103">            return false</span>
+          case exp: NullPointerException =&gt;
+<span class="nc" id="L105">            logger.info(&quot;null pointer  &quot; + exp)</span>
+<span class="nc" id="L106">            return false</span>
+        }
+      }
+<span class="fc" id="L109">      logger.info(&quot;############################### HHID will not test in UK ,MX,JP and AU market  ##### :- &quot;)</span>
+<span class="fc" id="L110">      return true</span>
+    }
+    else
+<span class="nc" id="L113">      logger.info(&quot;------------------ Bitmap File  will not be tested for custom Attr--------------------------&quot;)</span>
+<span class="nc" id="L114">    true</span>
+
+  }
+  def validateBitmap(key: String, bucketName: String,awsS3Client: AmazonS3, taxonomyFileCount: String): Boolean = {
+
+<span class="fc" id="L119">    var objec = awsS3Client.getObject(new GetObjectRequest(bucketName, key))</span>
+<span class="fc" id="L120">    var objectData: InputStream = objec.getObjectContent</span>
+<span class="fc" id="L121">    var bos = new ByteArrayOutputStream()</span>
+<span class="fc" id="L122">    var oos = new ObjectOutputStream(bos)</span>
+<span class="fc" id="L123">    var arrayByte = IOUtils.toByteArray(objectData)</span>
+<span class="fc" id="L124">    var bitmap = BitMapUtility.deserializeBitmap(arrayByte)</span>
+<span class="fc" id="L125">    var outputLuidCount = bitmap.toArray().length.toString()</span>
+<span class="fc" id="L126">    var status= true</span>
+<span class="pc bpc" id="L127" title="4 of 6 branches missed.">    if (taxonomyFileCount == outputLuidCount) {</span>
+<span class="fc" id="L128">      logger.info(&quot;-------------- Bitmap count is correct for location ---- :- &quot; + key)</span>
+
+    } else {
+<span class="nc" id="L131">      logger.info(&quot;##############Bitmap location  is &quot; + key)</span>
+<span class="nc" id="L132">      logger.info(&quot;##############Actual bitmap count is &quot; + outputLuidCount)</span>
+<span class="nc" id="L133">      logger.info(&quot;############# Bitmap count in taxonomyFile is &quot; + taxonomyFileCount)</span>
+<span class="nc" id="L134">      status =false</span>
+    }
+<span class="fc" id="L136">    return status</span>
+  }
+  def validation(marketName: String,
+                 bucket: String,
+                 dataProviderName: String,
+                 matchingPartnerName: String,
+<span class="nc" id="L142">                 thread_count: Int = 1): Unit = {</span>
+<span class="fc" id="L143">    var setup = new Setup(marketName, bucket, dataProviderName, matchingPartnerName)</span>
+<span class="fc" id="L144">    var awsS3Client = setup.awsS3Client</span>
+<span class="fc" id="L145">    val pColumns = FileData.dataProviderData(awsS3Client, setup).par</span>
+<span class="fc" id="L146">    pColumns.tasksupport = new ForkJoinTaskSupport(new forkjoin.ForkJoinPool(thread_count))</span>
+<span class="pc bpc" id="L147" title="1 of 2 branches missed.">    pColumns.foreach(dataSetFileData =&gt;</span>
+<span class="pc bpc" id="L148" title="1 of 2 branches missed.">      if(!(mbidCountValidation(awsS3Client, setup, dataSetFileData(1)))){</span>
+<span class="nc" id="L149">        throw new RuntimeException(</span>
+<span class="nc" id="L150">          s&quot;-----------------Mbid Count is not correct---------------------&quot;)</span>
+      }
+      )
+<span class="pc bpc" id="L153" title="1 of 2 branches missed.">    pColumns.foreach(dataSetFileData =&gt;</span>
+<span class="pc bpc" id="L154" title="1 of 2 branches missed.">      if(!(hhidCountValidation(awsS3Client, setup, dataSetFileData(1)))){</span>
+<span class="nc" id="L155">        throw new RuntimeException(</span>
+<span class="nc" id="L156">          s&quot;-----------------HHID Count is not correct---------------------&quot;)</span>
+      }
+    )
+      }
+
+   override def run(args: JSONObject): Unit = {
+
+<span class="fc" id="L163">    val marketName = args.getString(&quot;marketName&quot;)</span>
+<span class="fc" id="L164">    val bucket = args.getString(&quot;bucket&quot;)</span>
+<span class="fc" id="L165">    val dataProviderName = args.getString(&quot;dataProviderName&quot;)</span>
+<span class="fc" id="L166">    val matchingPartnerName = args.getString(&quot;matchingPartnerName&quot;)</span>
+<span class="fc" id="L167">    val thread_count = args.getOrElse[Int](&quot;thread_count&quot;, 1)</span>
+<span class="fc" id="L168">    validation(</span>
+<span class="fc" id="L169">      marketName,</span>
+<span class="fc" id="L170">      bucket,</span>
+<span class="fc" id="L171">      dataProviderName,</span>
+<span class="fc" id="L172">      matchingPartnerName,</span>
+<span class="fc" id="L173">      thread_count)</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

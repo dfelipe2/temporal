@@ -1,0 +1,356 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ComscoreModeledBitmap.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.bitmap</a> &gt; <span class="el_source">ComscoreModeledBitmap.scala</span></div><h1>ComscoreModeledBitmap.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.bitmap
+
+import com.mbww.cia.common.Spark._
+import com.mbww.cia.common.bitmap._
+import com.mbww.cia.common.utility.util.{EtlPath, EtlPathDsl, FileSystemSupport, PathUtils}
+import com.mbww.cia.common.{Module, _}
+import org.apache.commons.lang3.StringUtils
+import org.apache.spark.sql._
+import org.apache.spark.sql.catalyst.catalog.ExternalCatalogUtils
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.types.{IntegerType, StructType}
+import org.json.{JSONObject}
+
+
+<span class="fc" id="L15">class ComscoreModeledBitmap extends Module {</span>
+  import Columns._
+
+  override def run(args: JSONObject): Unit = {
+
+<span class="fc" id="L20">    val sizeSpecificationPath = args.getString(&quot;size_specification_path&quot;)</span>
+<span class="fc" id="L21">    val bitmapBasePath = args.getString(&quot;bitmap_base_path&quot;)</span>
+<span class="fc" id="L22">    val referenceBitmapBasePath = args.getString(&quot;reference_bitmap_base_path&quot;)</span>
+<span class="fc" id="L23">    val outputPath = args.getString(&quot;output_path&quot;)</span>
+<span class="fc" id="L24">    val minimumModeledSizeFactor = args.getInt(&quot;minimum_modeled_size_factor&quot;)</span>
+
+<span class="fc" id="L26">    generate(</span>
+<span class="fc" id="L27">      sizeSpecificationPath,</span>
+<span class="fc" id="L28">      bitmapBasePath,</span>
+<span class="fc" id="L29">      referenceBitmapBasePath,</span>
+<span class="fc" id="L30">      outputPath,</span>
+<span class="fc" id="L31">      minimumModeledSizeFactor)</span>
+  }
+
+  /**
+    * Generates the modeled bitmaps for a given base path.
+    *
+    * @param sizeSpecificationPath             A tsv file containing two columns: &quot;relative_path&quot; with the source bitmap
+    *                                 containing directory starting at the base path. &quot;attribute_modeled_size&quot; with the
+    *                                 attribute's expected size.
+    * @param bitmapBasePath           The path where the source bitmaps are located.
+    * @param referenceBitmapBasePath  The path where reference bitmaps are located.
+    * @param outputPath               The base path where modeled bitmaps will be saved.
+    * @param minimumModeledSizeFactor The minimum size factor for the modeled bitmaps. e.g. a value of .95 indicates
+    *                                 only modeled bitmaps with at least 95% of the expected size will be generated.
+    * @param sparkSession             A spark session object.
+    */
+  def generate(sizeSpecificationPath: String,
+               bitmapBasePath: String,
+               referenceBitmapBasePath: String,
+               outputPath: String,
+               minimumModeledSizeFactor: Double): Unit = {
+
+<span class="fc" id="L53">    val sizeSpecDf = spark.read.option(&quot;header&quot;, &quot;true&quot;).option(&quot;delimiter&quot;, &quot;\t&quot;).csv(sizeSpecificationPath)</span>
+<span class="fc" id="L54">      .withColumn(AttributeDirectoryPath,concat_ws(&quot;/&quot;, lit(stripSlash(bitmapBasePath)), Udfs.StripSlashes(col(RelativePath))))</span>
+
+<span class="fc" id="L56">    val attributeBitmapPaths = sizeSpecDf.select(AttributeDirectoryPath).collect().map(_.getString(0))</span>
+
+<span class="fc" id="L58">    val referenceDf = getBitmapDataFrame(Bitmap.Reference, referenceBitmapBasePath :: Nil)</span>
+
+<span class="fc" id="L60">    val attributeDf = getBitmapDataFrame(Bitmap.Attribute, attributeBitmapPaths)</span>
+
+<span class="fc" id="L62">    val attributesWithSizeDf = attributeSizes(attributeDf, sizeSpecDf, minimumModeledSizeFactor)</span>
+
+<span class="pc bpc" id="L64" title="1 of 2 branches missed.">    val (intersectionsDf, intersectionCardinalitiesDf) = intersectAttributesAndReferences(</span>
+<span class="fc" id="L65">      attributesWithSizeDf, referenceDf)</span>
+
+<span class="fc" id="L67">    val expectedCountsDf = getIntersectionCounts(intersectionCardinalitiesDf)</span>
+<span class="fc" id="L68">    val modeledCountsDf = getModeledCounts(expectedCountsDf)</span>
+
+<span class="fc" id="L70">    val modeledAttributesDf = getModeledAttributes(modeledCountsDf, intersectionsDf)</span>
+
+<span class="fc" id="L72">    saveModeledAttributes(modeledAttributesDf, outputPath)</span>
+<span class="fc" id="L73">    renameFiles(outputPath)</span>
+  }
+
+<span class="fc" id="L76">  def stripSlash(path: String): String = StringUtils.stripEnd(path, &quot;/&quot;)</span>
+
+<span class="pc bpc" id="L78" title="1 of 4 branches missed.">  object Bitmap extends Enumeration {</span>
+    type Bitmap = Value
+<span class="fc" id="L80">    val Attribute = Value(&quot;attribute&quot;)</span>
+<span class="fc" id="L81">    val Reference = Value(&quot;reference&quot;)</span>
+  }
+<span class="pc bpc" id="L83" title="1 of 4 branches missed.">  object Columns {</span>
+<span class="fc" id="L84">    val AndCardinality = &quot;and_cardinality&quot;</span>
+<span class="fc" id="L85">    val AndIndices = &quot;and_indices&quot;</span>
+<span class="fc" id="L86">    val AttributeCardinality = &quot;attribute_cardinality&quot;</span>
+<span class="fc" id="L87">    val AttributeDirectoryPath = &quot;attribute_directory_path&quot;</span>
+<span class="fc" id="L88">    val AttributeExpectedSize = &quot;attribute_modeled_size&quot;</span>
+<span class="fc" id="L89">    val AttributeIndices = &quot;attribute_indices&quot;</span>
+<span class="fc" id="L90">    val AttributePath = &quot;attribute_path&quot;</span>
+<span class="fc" id="L91">    val CombinationExpectedSize = &quot;combination_modeled_size&quot;</span>
+<span class="pc" id="L92">    val ConditionsAttributePath = &quot;conditions_attribute_path&quot;</span>
+<span class="fc" id="L93">    val ExcessIds = &quot;excess_ids&quot;</span>
+<span class="pc" id="L94">    val GenerateAttribute = &quot;generate_attribute&quot;</span>
+<span class="fc" id="L95">    val IdsToExtract = &quot;ids_to_extract&quot;</span>
+<span class="pc" id="L96">    val Indices = BitmapFileFormat.IndexColumn</span>
+<span class="fc" id="L97">    val LackingIds = &quot;lacking_ids&quot;</span>
+<span class="fc" id="L98">    val MinimumAttributeSize = &quot;minimum_attribute_size&quot;</span>
+<span class="fc" id="L99">    val ModeledIndices = &quot;modeled_indices&quot;</span>
+<span class="fc" id="L100">    val Multiplier = &quot;multiplier&quot;</span>
+<span class="fc" id="L101">    val NandCardinality = &quot;nand_cardinality&quot;</span>
+<span class="fc" id="L102">    val NandIndices = &quot;nand_indices&quot;</span>
+<span class="fc" id="L103">    val ReferenceCardinality = &quot;reference_cardinality&quot;</span>
+<span class="fc" id="L104">    val ReferenceIndices = &quot;reference_indices&quot;</span>
+<span class="fc" id="L105">    val ReferencePath = &quot;reference_path&quot;</span>
+<span class="pc" id="L106">    val ReferencesWithExcessIds = &quot;references_excess_ids&quot;</span>
+<span class="fc" id="L107">    val RelativePath = &quot;relative_path&quot;</span>
+<span class="fc" id="L108">    val RemainingIdsToExtract = &quot;remaining_ids&quot;</span>
+<span class="fc" id="L109">    val SumExcessIds = &quot;sum_excess_ids&quot;</span>
+<span class="fc" id="L110">    val SumLackingIds = &quot;sum_lacking_ids&quot;</span>
+<span class="fc" id="L111">    val SumRemainingIds = &quot;sum_remaining_ids&quot;</span>
+<span class="fc" id="L112">    val TotalIdsToExtract = &quot;total_ids_to_extract&quot;</span>
+  }
+
+
+<span class="fc" id="L116">  def getBitmapDataFrame(bitmapType: Bitmap.Bitmap,</span>
+                                 bitmapPaths: Seq[String]) : DataFrame = {
+<span class="pc bpc" id="L118" title="3 of 6 branches missed.">    val pathColumn = if (bitmapType == Bitmap.Attribute) AttributePath else ReferencePath</span>
+<span class="pc bpc" id="L119" title="3 of 6 branches missed.">    val indicesColumn = if (bitmapType == Bitmap.Attribute) AttributeIndices else ReferenceIndices</span>
+<span class="pc bpc" id="L120" title="3 of 6 branches missed.">    val cardinalityColumn = if (bitmapType == Bitmap.Attribute) AttributeCardinality else ReferenceCardinality</span>
+
+<span class="fc" id="L122">    loadBinaryBitmapDataFrame(bitmapPaths, indicesColumn, withPath = true, pathColumn)</span>
+<span class="fc" id="L123">      .withColumn(cardinalityColumn, Udfs.BitmapCardinality(col(indicesColumn)).cast(IntegerType))</span>
+  }
+
+  /**
+    * Persists the modeled attributes to disk.
+    *
+    * @param modeledAttributesDf Modeled attributes data frame.
+    * @param outputPath          Base output path.
+    * @param sparkSession        A spark session object.
+    */
+  private def saveModeledAttributes(modeledAttributesDf: DataFrame,
+                                    outputPath: String): Unit = {
+<span class="fc" id="L135">    spark.sparkContext.setJobDescription(&quot;persisting data frame&quot;)</span>
+<span class="fc" id="L136">    modeledAttributesDf</span>
+<span class="fc" id="L137">      .write</span>
+<span class="fc" id="L138">      .mode(SaveMode.Append)</span>
+<span class="fc" id="L139">      .format(classOf[BitmapBinaryFileFormat].getName)</span>
+<span class="fc" id="L140">      .partitionBy(RelativePath)</span>
+<span class="fc" id="L141">      .save(outputPath)</span>
+  }
+
+  /**
+    * Computes the minimum attribute modeled size and multiplier.
+    *
+    * @param attributeDf              The attribute bitmap data frame.
+    * @param sizeSpecDf               The size specification data frame.
+    * @param minimumModeledSizeFactor The minimum size factor of the modeled bitmaps.
+    * @return The attribute bitmap data frame with the minimum modeled size and multiplier.
+    */
+  private def attributeSizes(attributeDf: DataFrame,
+                             sizeSpecDf: DataFrame,
+                             minimumModeledSizeFactor: Double): DataFrame = {
+
+<span class="fc" id="L156">    attributeDf</span>
+<span class="fc" id="L157">      .join(sizeSpecDf, Udfs.PathDirectory(attributeDf(AttributePath)) === sizeSpecDf(AttributeDirectoryPath))</span>
+<span class="fc" id="L158">      .drop(AttributeDirectoryPath)</span>
+<span class="fc" id="L159">      .withColumn(MinimumAttributeSize, (col(AttributeExpectedSize) * lit(minimumModeledSizeFactor)).cast(IntegerType))</span>
+<span class="fc" id="L160">      .withColumn(Multiplier, col(AttributeExpectedSize) / col(AttributeCardinality))</span>
+  }
+
+  /**
+    * Returns a data frame with the number of ids to be extracted, the surplus and shortage of each reference-attribute
+    * combination.
+    *
+    * @param intersectionCardinalitiesDf The data frame with the reference-attribute combination cardinalities.
+    * @return A data set with ids to be extracted counts.
+    */
+  private def getIntersectionCounts(intersectionCardinalitiesDf: DataFrame): DataFrame = {
+<span class="fc" id="L171">    intersectionCardinalitiesDf</span>
+<span class="fc" id="L172">      .withColumn(CombinationExpectedSize, round(col(AndCardinality) * col(Multiplier)).cast(IntegerType))</span>
+<span class="fc" id="L173">      .withColumn(IdsToExtract, col(CombinationExpectedSize) - col(AndCardinality))</span>
+<span class="fc" id="L174">      .withColumn(LackingIds, Udfs.Max(col(IdsToExtract) - col(NandCardinality), lit(0)))</span>
+<span class="fc" id="L175">      .withColumn(ExcessIds, Udfs.Max(col(NandCardinality) - col(IdsToExtract), lit(0)))</span>
+<span class="fc" id="L176">      .select(AttributePath, AttributeExpectedSize, ReferencePath, CombinationExpectedSize, MinimumAttributeSize, IdsToExtract, LackingIds, ExcessIds)</span>
+  }
+
+  def loadBinaryBitmapDataFrame(inputPaths: Seq[String],
+<span class="nc" id="L180">                                bitmapColumn: String = BitmapFileFormat.BinaryColumn,</span>
+<span class="nc" id="L181">                                withPath: Boolean = true,</span>
+<span class="pc" id="L182">                                pathColumn: String = &quot;bitmap_path&quot;): DataFrame = {</span>
+
+<span class="fc" id="L184">    val df = loadFilesInPath(inputPaths, format = classOf[BitmapBinaryFileFormat].getName)</span>
+<span class="fc" id="L185">      .withColumnRenamed(BitmapFileFormat.BinaryColumn, bitmapColumn)</span>
+
+<span class="pc bpc" id="L187" title="1 of 2 branches missed.">    if (withPath) df.withColumn(pathColumn, Udfs.ExtractPath(input_file_name())) else df</span>
+  }
+
+  /**
+    * Intersects the attributes bitmaps with the references computing the AND and NAND bitmaps.
+    *
+    * @param attributeSizesDf  Attribute bitmap data frame.
+    * @param referenceBitmapDf Reference bitmap data frame.
+    * @return A data frame with the intersections and another one with the cardinalities.
+    */
+  private def intersectAttributesAndReferences(attributeSizesDf: DataFrame,
+                                               referenceBitmapDf: DataFrame): (DataFrame, DataFrame) = {
+<span class="fc" id="L199">    val intersectionsDf = attributeSizesDf</span>
+<span class="fc" id="L200">      .crossJoin(referenceBitmapDf)</span>
+<span class="fc" id="L201">      .withColumn(AndIndices, Udfs.BitmapAnd(col(AttributeIndices), col(ReferenceIndices)))</span>
+<span class="fc" id="L202">      .withColumn(NandIndices, Udfs.BitmapNand(col(ReferenceIndices), col(AttributeIndices)))</span>
+<span class="fc" id="L203">      .withColumn(AndCardinality, Udfs.BitmapCardinality(col(AndIndices)))</span>
+<span class="fc" id="L204">      .withColumn(NandCardinality, Udfs.BitmapCardinality(col(NandIndices)))</span>
+
+<span class="fc" id="L206">    val cardinalityDf = intersectionsDf.select(AttributeCardinality, AttributeExpectedSize, AttributePath,</span>
+<span class="fc" id="L207">      MinimumAttributeSize, Multiplier, ReferencePath, RelativePath, AndCardinality, NandCardinality)</span>
+
+<span class="fc" id="L209">    val numberedIntersectionsDf = intersectionsDf</span>
+<span class="fc" id="L210">      .select(AttributePath, RelativePath, ReferencePath, AndIndices, NandIndices)</span>
+
+<span class="fc" id="L212">    (numberedIntersectionsDf, cardinalityDf)</span>
+  }
+
+  /**
+    * Data frame with the first iteration values.
+    *
+    * @param intersectionCountsDf Data frame with the number of ids to be extracted and what's the surplus and shortage
+    *                             numbers.
+    * @return A data frame with the initial conditions grouped by attribute.
+    */
+  private def getModeledCounts(intersectionCountsDf: DataFrame): DataFrame = {
+    // Here we aggregate on Attribute Path to obtain the sum of excess ids, the sum of lacking ids and the sum of
+    // remaining ids (ids available to complete the attribute's counts)
+
+    // When there's a shortage of ids greater than the minimum size margin, the attribute won't be modeled.
+<span class="fc" id="L227">    val attributeParametersDf = intersectionCountsDf</span>
+<span class="fc" id="L228">      .groupBy(col(AttributePath).as(AttributePath + &quot;_temp&quot;), col(MinimumAttributeSize), col(AttributeExpectedSize))</span>
+<span class="fc" id="L229">      .agg(sum(LackingIds).as(SumLackingIds), sum(ExcessIds).as(SumExcessIds))</span>
+<span class="fc" id="L230">      .filter((col(SumLackingIds) - col(SumExcessIds)) &lt; (col(AttributeExpectedSize) - col(MinimumAttributeSize)))</span>
+<span class="fc" id="L231">      .withColumn(SumRemainingIds, Udfs.Min(col(SumLackingIds), col(SumExcessIds)))</span>
+<span class="fc" id="L232">      .drop(MinimumAttributeSize)</span>
+<span class="fc" id="L233">      .drop(AttributeExpectedSize)</span>
+
+    // Compute the extra ids to be extracted, based on how many excess attributes the attribute has. Meaning that more ids
+    // in excess will cause more ids to be extracted from the attribute.
+<span class="fc" id="L237">    intersectionCountsDf.join(attributeParametersDf, col(AttributePath) === col(AttributePath + &quot;_temp&quot;))</span>
+<span class="fc" id="L238">      .drop(AttributePath + &quot;_temp&quot;)</span>
+<span class="fc" id="L239">      .withColumn(RemainingIdsToExtract,</span>
+<span class="fc" id="L240">        when(col(SumExcessIds) &gt; 0, round((col(SumRemainingIds) / col(SumExcessIds)) * col(ExcessIds)).cast(IntegerType))</span>
+<span class="fc" id="L241">          .otherwise(0))</span>
+<span class="fc" id="L242">      .withColumn(TotalIdsToExtract, col(IdsToExtract) + col(RemainingIdsToExtract))</span>
+  }
+
+  private def renameFiles(outputPath: String): Unit = {
+<span class="fc" id="L246">    FileSystemSupport.renameFilesOnPath(</span>
+<span class="fc" id="L247">      outputPath,</span>
+<span class="fc" id="L248">      recursive = true,</span>
+<span class="pc bpc" id="L249" title="1 of 2 branches missed.">      renameFn = p =&gt; {</span>
+<span class="fc" id="L250">        val pathPartition = EtlPathDsl.extractPartitionValue(p, -1)</span>
+<span class="pc" id="L251">          .getOrElse(throw new RuntimeException(&quot;Couldn't find a relative path partition&quot;))</span>
+
+<span class="fc bfc" id="L253" title="All 2 branches covered.">        if (pathPartition.contains(s&quot;$RelativePath=&quot;)) {</span>
+<span class="fc" id="L254">          val relativePath = ExternalCatalogUtils.unescapePathName(EtlPathDsl.parsePartitionValue(pathPartition))</span>
+<span class="fc" id="L255">          val fileName = EtlPathDsl.extractPartitionValue(p, 0)</span>
+<span class="pc" id="L256">            .getOrElse(throw new RuntimeException(&quot;Couldn't find a file name&quot;))</span>
+<span class="fc" id="L257">          s&quot;${stripSlash(outputPath)}/${StringUtils.strip(relativePath, &quot;/&quot;)}/$fileName&quot;</span>
+<span class="fc" id="L258">        } else p</span>
+      })
+  }
+
+
+  /**
+    * Model the attributes by extracting the computed ids from the each of the attribute-reference combination NAND bitmap.
+    *
+    * @param idToExtractCountsDf Data frame containing the computed counts to extract.
+    * @param intersectionsDf     Data frame containing the bitmap indices.
+    * @return A data frame containing the modeled bitmap indices.
+    */
+  private def getModeledAttributes(idToExtractCountsDf: DataFrame,
+                                   intersectionsDf: DataFrame): DataFrame = {
+
+<span class="fc" id="L273">    val aliasedDf = intersectionsDf.select(</span>
+<span class="fc" id="L274">      col(AttributePath).as(s&quot;${AttributePath}_temp&quot;),</span>
+<span class="fc" id="L275">      col(ReferencePath).as(s&quot;${ReferencePath}_temp&quot;),</span>
+<span class="fc" id="L276">      col(RelativePath),</span>
+<span class="fc" id="L277">      col(AndIndices),</span>
+<span class="fc" id="L278">      col(NandIndices)</span>
+    )
+
+<span class="fc" id="L281">    idToExtractCountsDf.join(aliasedDf,</span>
+<span class="fc" id="L282">      col(AttributePath) === col(s&quot;${AttributePath}_temp&quot;) and col(ReferencePath) === col(s&quot;${ReferencePath}_temp&quot;)</span>
+<span class="fc" id="L283">    ).select(</span>
+<span class="fc" id="L284">      col(RelativePath),</span>
+<span class="fc" id="L285">      Udfs.BitmapOr(Udfs.BitmapLimit(col(NandIndices), col(TotalIdsToExtract)), col(AndIndices)).as(ModeledIndices)</span>
+<span class="fc" id="L286">    ).groupBy(RelativePath)</span>
+<span class="fc" id="L287">      .agg(Udfs.BitmapConcat(collect_list(col(ModeledIndices))).as(ModeledIndices))</span>
+  }
+
+  def loadFilesInPath(inputPaths: Seq[String],
+                      format: String,
+<span class="fc" id="L292">                      compression: Option[String] = None): DataFrame = {</span>
+<span class="pc" id="L293">    assert(inputPaths.nonEmpty, &quot;The list of paths to load cannot be empty&quot;)</span>
+
+<span class="fc" id="L295">    assert(inputPaths.map(EtlPathDsl.parseEtlPath)</span>
+<span class="fc" id="L296">      .map(_._2)</span>
+<span class="fc" id="L297">      .map(p =&gt; StringUtils.substringBefore(p, &quot;/&quot;))</span>
+<span class="pc bpc" id="L298" title="1 of 2 branches missed.">      .distinct.length == 1,</span>
+<span class="pc" id="L299">      &quot;The paths bucket/host must be the same&quot;)</span>
+
+<span class="fc" id="L301">    val inputFs = getFileSystem(inputPaths.head)</span>
+<span class="fc" id="L302">    val paths = inputPaths</span>
+<span class="fc" id="L303">      .flatMap(p =&gt; PathUtils.getBasePaths(inputFs, p).toStream.distinct</span>
+<span class="fc" id="L304">        .map(bp =&gt; EtlPath(bp, PathUtils.getFileRelativePath(bp, p))))</span>
+
+<span class="fc" id="L306">    loadDataFrameWithMultipleBasePaths(paths, format = format)</span>
+  }
+  /**
+    * Loads a series of paths using unions when the base path differ. For example, in the case when paths are:
+    * s3://bucket/data/2017/09/category=1
+    * s3://bucket/data/2017/10/category=1
+    * The hive partition names are the same (category) but the base paths differ (e.g. s3://bucket/data/2017/09/ and
+    * s3://bucket/data/2017/10/)
+    *
+    * @param sparkSession A sparkSession object.
+    * @param paths        The paths to load, including base path and relative path for each of them.
+    * @param schema       The schema the dataFrame should have. Used for verification.
+    * @return A dataFrame composed of the paths and the schema specified.
+    */
+  def loadDataFrameWithMultipleBasePaths(paths: Seq[EtlPath],
+<span class="fc" id="L321">                                         schema: Option[StructType] = None,</span>
+<span class="nc" id="L322">                                         format: String = &quot;parquet&quot;,</span>
+<span class="fc" id="L323">                                         compression: Option[String] = None): DataFrame = {</span>
+<span class="pc" id="L324">    assert(paths.nonEmpty, &quot;Empty path list&quot;)</span>
+
+<span class="pc bpc" id="L326" title="1 of 2 branches missed.">    val pathsByBasePath = paths.groupBy { case EtlPath(basePath, _) =&gt; basePath }</span>
+
+    // takes the grouped paths for which each group is a tuple containing (basePath, Seq(paths)) and loads all paths in
+    // the group
+<span class="pc bpc" id="L330" title="1 of 2 branches missed.">    val loadedPathsByBasePath = pathsByBasePath.map { case (basePath, ps) =&gt; {</span>
+<span class="fc" id="L331">      spark.sparkContext.setJobDescription(s&quot;Loading paths for basePath: $basePath&quot;)</span>
+<span class="fc" id="L332">      val df = spark</span>
+<span class="fc" id="L333">        .read</span>
+<span class="fc" id="L334">        .format(format)</span>
+<span class="fc" id="L335">        .option(&quot;basePath&quot;, basePath)</span>
+<span class="fc" id="L336">        .option(&quot;compression&quot;, compression.orNull)</span>
+<span class="fc" id="L337">        .load(ps.map(_.toString): _*)</span>
+
+<span class="pc bpc" id="L339" title="1 of 2 branches missed.">      if (schema.nonEmpty) {</span>
+<span class="nc bnc" id="L340" title="All 6 branches missed.">        assert(df.schema == schema.get,</span>
+<span class="nc bnc" id="L341" title="All 2 branches missed.">          s&quot;The schema of files in basePath=$basePath does not match\nExpected $schema\nActual ${df.schema}&quot;)</span>
+      }
+
+<span class="fc" id="L344">      (basePath, df)</span>
+    }
+    }
+
+    // unions the dataFrames resulting of each group
+<span class="fc" id="L349">    loadedPathsByBasePath.drop(1).foldLeft(loadedPathsByBasePath.head._2)((df1, df2) =&gt; {</span>
+<span class="fc" id="L350">      spark.sparkContext.setJobDescription(s&quot;Unioning loaded paths for basePath: ${df2._1}&quot;)</span>
+<span class="fc" id="L351">      df1.union(df2._2)</span>
+    })
+  }
+}
+
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

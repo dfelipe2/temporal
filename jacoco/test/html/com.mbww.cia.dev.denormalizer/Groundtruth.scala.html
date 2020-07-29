@@ -1,0 +1,265 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Groundtruth.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.denormalizer</a> &gt; <span class="el_source">Groundtruth.scala</span></div><h1>Groundtruth.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.denormalizer
+
+import com.mbww.cia.common.Spark._
+import com.mbww.cia.common.utility.Tools
+import com.mbww.cia.common.utility.Tools.{dayplus0, estTimezoneConverter}
+import com.mbww.cia.common.{Module, _}
+import org.apache.spark.sql.SaveMode
+import org.apache.spark.sql.expressions.Window
+import org.json.JSONObject
+import org.apache.spark.sql.functions._
+
+<span class="fc" id="L12">class Groundtruth extends Module {</span>
+
+<span class="pc bpc" id="L14" title="41 of 42 branches missed.">  case class ProcessingOption(prossesingYear: String,</span>
+<span class="pc" id="L15">                              prosesingMonths: Seq[String],</span>
+<span class="pc" id="L16">                              usePrcDateWriting: Boolean</span>
+                             )
+
+  def generateSQL(gtCwParquetPath: String,
+                  gtFactParquetBasePath: String,
+                  zipcodeGeoDetailPath: String,
+                  cityNamesMapPath: String,
+                  infobasePath: String,
+                  processingOption: ProcessingOption,
+                  outputPath: String
+                                     ): Unit = {
+
+<span class="fc" id="L28">    val groundtruthCrosswalkData = spark.read.load(gtCwParquetPath)</span>
+<span class="fc" id="L29">    groundtruthCrosswalkData.createOrReplaceTempView( &quot;groundtruth_crosswalk_data&quot; )</span>
+<span class="fc" id="L30">    val uniquekeys = spark.read.load(infobasePath)</span>
+<span class="fc" id="L31">    uniquekeys.createOrReplaceTempView( &quot;uniquekeys&quot; )</span>
+<span class="fc" id="L32">    val groundtruthDimesionData = spark.read.load(zipcodeGeoDetailPath)</span>
+<span class="fc" id="L33">    groundtruthDimesionData.createOrReplaceTempView(&quot;groundtruth_dimesion_data&quot;)</span>
+<span class="fc" id="L34">    val cityNamesMap = spark.read.parquet(cityNamesMapPath)</span>
+
+
+<span class="fc" id="L37">    spark.udf.register(&quot;est_timezone_converter&quot;,estTimezoneConverter)</span>
+<span class="fc" id="L38">    spark.udf.register(&quot;dayplus0&quot;,dayplus0)</span>
+
+<span class="fc" id="L40">    for (month &lt;- processingOption.prosesingMonths){</span>
+<span class="fc" id="L41">      val groundtruthPerMonthPartitionedData = spark.read.load(gtFactParquetBasePath+&quot;year=&quot;+processingOption.prossesingYear+&quot;/month=&quot;+month+&quot;/&quot;)</span>
+<span class="fc" id="L42">      groundtruthPerMonthPartitionedData.createOrReplaceTempView(&quot;groundtruth_per_month_partitioned_data&quot;)</span>
+
+<span class="fc" id="L44">      spark.sql(&quot;SELECT a.gt_id, a.last_seen_date, first_seen_date, b.mbid, b.mbid_value, b.hhid, b.hhid_value FROM groundtruth_crosswalk_data a inner join uniquekeys b ON a.consumer_pel = b.mbid_value&quot;).createOrReplaceTempView(&quot;groundtruth_cw_uniqueKeys&quot;)</span>
+<span class="fc" id="L45">      spark.sql(&quot;SELECT action_timestamp, to_timestamp(action_timestamp,'yyyy-MM-dd HH:mm:ss') as myTimestamp, gt_id, category, brand_label, company_name, city_label, state_abbreviation, zip_code, dwell_time, visit_dwell_id, day FROM groundtruth_per_month_partitioned_data WHERE dwell_time!=-1 AND dwell_time is not null&quot;).createOrReplaceTempView(&quot;groundTruth_withoutNullOrMinusOne_data&quot;)</span>
+<span class="fc" id="L46">      spark.sql(&quot;SELECT action_timestamp, myTimestamp, gt_id, category, brand_label, company_name, city_label, state_abbreviation, zip_code, dwell_time, visit_dwell_id,day FROM (SELECT action_timestamp, myTimestamp, gt_id, category, brand_label, company_name, city_label, state_abbreviation, zip_code, dwell_time, visit_dwell_id,day, ROW_NUMBER() OVER(PARTITION BY visit_dwell_id ORDER BY myTimestamp) as rownum FROM groundTruth_withoutNullOrMinusOne_data)p WHERE rownum=1&quot;).createOrReplaceTempView(&quot;groundTruth_withoutNullOrMinusOneFiltered_data&quot;)</span>
+<span class="fc" id="L47">      spark.sql(&quot;SELECT action_timestamp, to_timestamp(action_timestamp,'yyyy-MM-dd HH:mm:ss') as myTimestamp, gt_id, category, brand_label, company_name, city_label, state_abbreviation, zip_code, dwell_time, visit_dwell_id ,day FROM groundtruth_per_month_partitioned_data WHERE dwell_time=-1 or dwell_time is null&quot;).createOrReplaceTempView(&quot;groundTruth_withNullOrMinusOne_data&quot;)</span>
+<span class="fc" id="L48">      spark.sql(&quot;SELECT * FROM groundTruth_withoutNullOrMinusOneFiltered_data UNION ALL SELECT * FROM groundTruth_withNullOrMinusOne_data&quot;).createOrReplaceTempView(&quot;groundTruth_fact_filtered_merged_data&quot;)</span>
+
+<span class="fc" id="L50">      spark.sql(&quot;SELECT a.action_timestamp, a.myTimestamp, a.gt_id, a.category, a.brand_label, a.company_name, a.city_label, b.state_abbreviation, a.zip_code, a.dwell_time, a.visit_dwell_id, b.timezone, a.day FROM groundTruth_fact_filtered_merged_data a inner join groundtruth_dimesion_data b on a.zip_code=b.zip_code &quot;).createOrReplaceTempView(&quot;groundTruth_fact_joined_with_dimension&quot;)</span>
+<span class="fc" id="L51">      spark.sql(&quot;SELECT a.action_timestamp, a.myTimestamp, a.gt_id, a.category, a.brand_label, a.company_name, a.city_label, a.state_abbreviation, a.zip_code, a.dwell_time, a.visit_dwell_id, a.timezone, b.mbid, b.mbid_value, b.hhid, b.hhid_value, b.first_seen_date, b.last_seen_date , a.day FROM groundTruth_fact_joined_with_dimension a inner join groundtruth_cw_uniqueKeys b ON (a.gt_id=b.gt_id AND a.myTimestamp BETWEEN b.first_seen_date AND b.last_seen_date)&quot;).createOrReplaceTempView(&quot;groundTruth_fact_joined_with_crosswalk_unique_keys&quot;)</span>
+
+<span class="fc" id="L53">      spark.sql(&quot;SELECT action_timestamp, myTimestamp, gt_id, category, CASE WHEN (brand_label = 'Unbranded' AND company_name IN ('United States Postal Service','United States Postal Svc','US Govt Post Offices Downtown Sta','US P S','US Post Office','US Post Office Annex','US Postal Service','US Postal Svc','Usps','East Walpole Postal Svc','Joe Soriano Post Offices','Postal Service Post Offices','Postal Service Sttn &amp; Branch')) THEN company_name ELSE brand_label end as brand, company_name, city_label, state_abbreviation, zip_code, dwell_time, visit_dwell_id, timezone, mbid, mbid_value, hhid, hhid_value, last_seen_date, first_seen_date, day FROM groundTruth_fact_joined_with_crosswalk_unique_keys&quot;).createOrReplaceTempView(&quot;groundTruthFilteredBrandLabelData&quot;)</span>
+<span class="fc" id="L54">      spark.sql(&quot;SELECT action_timestamp, est_timezone_converter(timezone,action_timestamp) as local_timestamp, myTimestamp, gt_id, category, brand, company_name, city_label, state_abbreviation, zip_code, dwell_time, visit_dwell_id, timezone, mbid, mbid_value, hhid, hhid_value, last_seen_date, first_seen_date ,day FROM groundTruthFilteredBrandLabelData&quot;).createOrReplaceTempView(&quot;groundTruth_data_with_expected_timezone&quot;)</span>
+<span class="fc" id="L55">      spark.sql(&quot;SELECT action_timestamp, local_timestamp, TO_DATE(CAST(UNIX_TIMESTAMP(local_timestamp,'yyyy-MM-dd') AS TIMESTAMP)) AS date, hour(local_timestamp) as hour, gt_id, category, brand, company_name, city_label, state_abbreviation, zip_code, dwell_time, visit_dwell_id, timezone, mbid, mbid_value, hhid, hhid_value, last_seen_date, first_seen_date , day FROM groundTruth_data_with_expected_timezone&quot;).createOrReplaceTempView(&quot;groundTruth_facts_with_hour&quot;)</span>
+<span class="fc" id="L56">      spark.sql(&quot;SELECT action_timestamp, local_timestamp, date, hour, gt_id, category, brand, company_name, city_label, state_abbreviation, zip_code, dwell_time, visit_dwell_id, timezone, mbid, mbid_value, hhid, hhid_value, last_seen_date, first_seen_date, dayplus0(day) as day, case when hour=0 then '23:00-01:00' else case when hour=1 then '23:00-01:00' else case when hour=2 then '02:00-04:00' else case when hour=3 then '02:00-04:00' else case when hour=4 then '02:00-04:00' else case when hour=5 then '05:00-06:00' else case when hour=6 then '05:00-06:00' else case when hour=7 then '07:00-08:00' else case when hour=8 then '07:00-08:00' else case when hour=9 then '09:00-10:00' else case when hour=10 then '09:00-10:00' else case when hour=11 then '11:00-13:00' else case when hour=12 then '11:00-13:00' else case when hour=13 then '11:00-13:00' else case when hour=14 then '14:00-16:00' else case when hour=15 then '14:00-16:00' else case when hour=16 then '14:00-16:00' else case when hour=17 then '17:00-18:00' else case when hour=18 then '17:00-18:00' else case when hour=19 then '19:00-20:00' else case when hour=20 then '19:00-20:00' else case when hour=21 then '21:00-22:00' else case when hour=22 then '21:00-22:00' else case when hour=23 then '23:00-01:00' else case when hour=24 then '23:00-01:00'  else 'NA' END END END END END END END END END END END END END END END END END END END END END END END END END as daypart FROM groundTruth_facts_with_hour&quot;).createOrReplaceTempView(&quot;groundTruth_data_with_dayparts&quot;)</span>
+
+<span class="fc" id="L58">      val dfResult = spark.sql(&quot;SELECT * FROM groundTruth_data_with_dayparts&quot;)</span>
+
+<span class="fc" id="L60">      val gtFactComplete = dfResult.join(broadcast(cityNamesMap),dfResult.col(&quot;city_label&quot;)===cityNamesMap.col(&quot;bad_city_label&quot;),&quot;left&quot;)</span>
+<span class="fc" id="L61">        .withColumn(&quot;city&quot;, when(cityNamesMap.col(&quot;bad_city_label&quot;).isNotNull,cityNamesMap.col(&quot;correct_city_label&quot;))</span>
+<span class="fc" id="L62">          .otherwise(dfResult.col(&quot;city_label&quot;)))</span>
+
+<span class="fc" id="L64">      var partitionColumns = List(&quot;prcdate&quot;,&quot;date&quot;)</span>
+<span class="fc" id="L65">      var selectColumns = Seq(col(&quot;date&quot;),col(&quot;mbid&quot;),col(&quot;hhid&quot;),col(&quot;category&quot;),col(&quot;brand&quot;),col(&quot;city&quot;),col(&quot;mbid_value&quot;),col(&quot;hhid_value&quot;),col(&quot;state&quot;),col(&quot;daypart&quot;),col(&quot;prcdate&quot;))</span>
+<span class="pc bpc" id="L66" title="1 of 2 branches missed.">      if (!processingOption.usePrcDateWriting){</span>
+<span class="fc" id="L67">        partitionColumns = List(&quot;date&quot;)</span>
+<span class="fc" id="L68">        selectColumns = Seq(col(&quot;date&quot;),col(&quot;mbid&quot;),col(&quot;hhid&quot;),col(&quot;category&quot;),col(&quot;brand&quot;),col(&quot;city&quot;),col(&quot;mbid_value&quot;),col(&quot;hhid_value&quot;),col(&quot;state&quot;),col(&quot;daypart&quot;))</span>
+      }
+
+<span class="fc" id="L71">      gtFactComplete</span>
+<span class="fc" id="L72">        .withColumnRenamed(&quot;state_abbreviation&quot;,&quot;state&quot;)</span>
+<span class="fc" id="L73">        .withColumn(&quot;prcdate&quot;,concat(lit(processingOption.prossesingYear),lit(month), gtFactComplete.col(&quot;day&quot;)))</span>
+<span class="fc" id="L74">        .select(selectColumns:_*)</span>
+<span class="fc" id="L75">        .write.mode(SaveMode.Append)</span>
+<span class="fc" id="L76">        .partitionBy(partitionColumns:_*)</span>
+<span class="fc" id="L77">        .parquet(outputPath)</span>
+    }
+  }
+
+
+
+
+  def generateScala(gtCwParquetPath: String,
+                    gtFactParquetBasePath: String,
+                    zipcodeGeoDetailPath: String,
+                    cityNamesMapPath: String,
+                    infobasePath: String,
+                    processingOption: ProcessingOption,
+                    outputPath: String
+                                 ): Unit = {
+
+<span class="nc" id="L93">    val infobase = spark.read.parquet(infobasePath)</span>
+<span class="nc" id="L94">    val zipcodeGeoDetail = spark.read.parquet(zipcodeGeoDetailPath)</span>
+<span class="nc" id="L95">    val cityNamesMap = spark.read.parquet(cityNamesMapPath)</span>
+<span class="nc" id="L96">    var gtCw = spark.read.parquet(gtCwParquetPath)</span>
+
+<span class="nc" id="L98">    for (month &lt;- processingOption.prosesingMonths){</span>
+
+<span class="nc" id="L100">      val gtFact = spark.read.parquet(gtFactParquetBasePath+&quot;/year=&quot;+processingOption.prossesingYear+&quot;/month=&quot;+month+&quot;/&quot;)</span>
+
+<span class="nc" id="L102">      val gtCwUniqueKeys = gtCw.join(infobase, gtCw.col(&quot;consumer_pel&quot;) === infobase.col(&quot;mbid_value&quot;), &quot;inner&quot;)</span>
+<span class="nc" id="L103">        .select(gtCw.col(&quot;gt_id&quot;),</span>
+<span class="nc" id="L104">          gtCw.col(&quot;last_seen_date&quot;),</span>
+<span class="nc" id="L105">          gtCw.col(&quot;first_seen_date&quot;),</span>
+<span class="nc" id="L106">          infobase.col(&quot;mbid&quot;),</span>
+<span class="nc" id="L107">          infobase.col(&quot;mbid_value&quot;),</span>
+<span class="nc" id="L108">          infobase.col(&quot;hhid&quot;),</span>
+<span class="nc" id="L109">          infobase.col(&quot;hhid_value&quot;))</span>
+
+<span class="nc" id="L111">      val gtWithoutNullOrMinusOne = gtFact.filter((gtFact.col(&quot;dwell_time&quot;)=!=1) and (gtFact.col(&quot;dwell_time&quot;).isNotNull))</span>
+<span class="nc" id="L112">        .withColumn(&quot;myTimestamp&quot;, to_timestamp(gtFact.col(&quot;action_timestamp&quot;),&quot;yyyy-MM-dd HH:mm:ss&quot;))</span>
+<span class="nc" id="L113">        .select(col(&quot;action_timestamp&quot;),</span>
+<span class="nc" id="L114">          col(&quot;myTimestamp&quot;),</span>
+<span class="nc" id="L115">          col(&quot;gt_id&quot;),</span>
+<span class="nc" id="L116">          col(&quot;category&quot;),</span>
+<span class="nc" id="L117">          col(&quot;brand_label&quot;),</span>
+<span class="nc" id="L118">          col(&quot;company_name&quot;),</span>
+<span class="nc" id="L119">          col(&quot;city_label&quot;),</span>
+<span class="nc" id="L120">          col(&quot;state_abbreviation&quot;),</span>
+<span class="nc" id="L121">          col(&quot;zip_code&quot;),</span>
+<span class="nc" id="L122">          col(&quot;dwell_time&quot;),</span>
+<span class="nc" id="L123">          col(&quot;visit_dwell_id&quot;),</span>
+<span class="nc" id="L124">          col(&quot;day&quot;))</span>
+
+<span class="nc" id="L126">       val winTime = Window.partitionBy(col(&quot;visit_dwell_id&quot;)).orderBy(col(&quot;myTimestamp&quot;))</span>
+<span class="nc" id="L127">       val gtWithoutNullOrMinusOneFiltered = gtWithoutNullOrMinusOne</span>
+<span class="nc" id="L128">         .withColumn(&quot;rownum&quot;, row_number().over(winTime))</span>
+<span class="nc" id="L129">         .filter(col(&quot;rownum&quot;)===1)</span>
+<span class="nc" id="L130">         .drop(col(&quot;rownum&quot;))</span>
+
+<span class="nc" id="L132">      val gtWithNullOrMinusOne = gtFact</span>
+<span class="nc" id="L133">        .filter((gtFact.col(&quot;dwell_time&quot;)===(-1))</span>
+<span class="nc" id="L134">          or</span>
+<span class="nc" id="L135">          (gtFact.col(&quot;dwell_time&quot;).isNull))</span>
+<span class="nc" id="L136">        .withColumn(&quot;myTimestamp&quot;, to_timestamp(gtFact.col(&quot;action_timestamp&quot;),&quot;yyyy-MM-dd HH:mm:ss&quot;))</span>
+<span class="nc" id="L137">        .select(col(&quot;action_timestamp&quot;),</span>
+<span class="nc" id="L138">          col(&quot;myTimestamp&quot;),</span>
+<span class="nc" id="L139">          col(&quot;gt_id&quot;),</span>
+<span class="nc" id="L140">          col(&quot;category&quot;),</span>
+<span class="nc" id="L141">          col(&quot;brand_label&quot;),</span>
+<span class="nc" id="L142">          col(&quot;company_name&quot;),</span>
+<span class="nc" id="L143">          col(&quot;city_label&quot;),</span>
+<span class="nc" id="L144">          col(&quot;state_abbreviation&quot;),</span>
+<span class="nc" id="L145">          col(&quot;zip_code&quot;),</span>
+<span class="nc" id="L146">          col(&quot;dwell_time&quot;),</span>
+<span class="nc" id="L147">          col(&quot;visit_dwell_id&quot;),</span>
+<span class="nc" id="L148">          col(&quot;day&quot;))</span>
+
+<span class="nc" id="L150">      val gtFactFilteredMerged = gtWithoutNullOrMinusOneFiltered.union(gtWithNullOrMinusOne)</span>
+
+<span class="nc" id="L152">      val selectColsGtFactJoinedWithGeoDetail = gtFactFilteredMerged.columns.map(gtFactFilteredMerged(_)) ++ Array(zipcodeGeoDetail(&quot;timezone&quot;))</span>
+<span class="nc" id="L153">      val gtFactJoinedWithGeoDetail = gtFactFilteredMerged</span>
+<span class="nc" id="L154">        .join(broadcast(zipcodeGeoDetail), gtFactFilteredMerged.col(&quot;zip_code&quot;)===zipcodeGeoDetail.col(&quot;zip_code&quot;),&quot;inner&quot;)</span>
+<span class="nc" id="L155">        .select(selectColsGtFactJoinedWithGeoDetail:_*)</span>
+
+
+<span class="nc" id="L158">      val gtFactComplete = gtFactJoinedWithGeoDetail.join(broadcast(cityNamesMap),gtFactJoinedWithGeoDetail.col(&quot;city_label&quot;)===cityNamesMap.col(&quot;bad_city_label&quot;),&quot;left&quot;)</span>
+<span class="nc" id="L159">        .withColumn(&quot;city_label&quot;, when(cityNamesMap.col(&quot;bad_city_label&quot;).isNotNull,cityNamesMap.col(&quot;correct_city_label&quot;))</span>
+<span class="nc" id="L160">          .otherwise(gtFactJoinedWithGeoDetail.col(&quot;city_label&quot;)))</span>
+
+<span class="nc" id="L162">      val selectColsGtFactJoinedCwUniqueKeys = gtFactComplete.columns.map(gtFactComplete(_)) ++ Array(gtCwUniqueKeys(&quot;mbid&quot;), gtCwUniqueKeys(&quot;mbid_value&quot;), gtCwUniqueKeys(&quot;hhid&quot;), gtCwUniqueKeys(&quot;hhid_value&quot;), gtCwUniqueKeys(&quot;first_seen_date&quot;), gtCwUniqueKeys(&quot;last_seen_date&quot;))</span>
+
+<span class="nc" id="L164">      val gtFactJoinedCwUniqueKeys =  gtFactComplete</span>
+<span class="nc" id="L165">        .join(gtCwUniqueKeys,</span>
+<span class="nc" id="L166">          (gtFactComplete.col(&quot;gt_id&quot;)===gtCwUniqueKeys.col(&quot;gt_id&quot;))</span>
+<span class="nc" id="L167">            and</span>
+<span class="nc" id="L168">            (gtFactComplete.col(&quot;myTimestamp&quot;).between(gtCwUniqueKeys.col(&quot;first_seen_date&quot;),gtCwUniqueKeys.col(&quot;last_seen_date&quot;)))</span>
+<span class="nc" id="L169">          ,&quot;inner&quot;)</span>
+<span class="nc" id="L170">        .select(selectColsGtFactJoinedCwUniqueKeys:_*)</span>
+
+<span class="nc" id="L172">      val brandList = Array(&quot;United States Postal Service&quot;,&quot;United States Postal Svc&quot;,&quot;US Govt Post Offices Downtown Sta&quot;,&quot;US P S&quot;,&quot;US Post Office&quot;,&quot;US Post Office Annex&quot;,&quot;US Postal Service&quot;,&quot;US Postal Svc&quot;,&quot;Usps&quot;,&quot;East Walpole Postal Svc&quot;,&quot;Joe Soriano Post Offices&quot;, &quot;Postal Service Post Offices&quot;,&quot;Postal Service Sttn &amp; Branch&quot;)</span>
+
+<span class="nc" id="L174">      val gtFilteredBrandLabel = gtFactJoinedCwUniqueKeys</span>
+<span class="nc" id="L175">        .withColumn(&quot;brand&quot;, when((gtFactJoinedCwUniqueKeys.col(&quot;company_name&quot;).isin(brandList:_*))</span>
+<span class="nc" id="L176">          and</span>
+<span class="nc" id="L177">          (gtFactJoinedCwUniqueKeys.col(&quot;brand_label&quot;)===lit(&quot;Unbranded&quot;))</span>
+<span class="nc" id="L178">          ,gtFactJoinedCwUniqueKeys.col(&quot;company_name&quot;))</span>
+<span class="nc" id="L179">          .otherwise(gtFactJoinedCwUniqueKeys.col(&quot;brand_label&quot;)))</span>
+<span class="nc" id="L180">        .drop(gtFactJoinedCwUniqueKeys.col(&quot;brand_label&quot;))</span>
+
+<span class="nc" id="L182">      val gtWithExpectedTimezone = gtFilteredBrandLabel</span>
+<span class="nc" id="L183">        .withColumn(&quot;local_timestamp&quot;, Tools.estTimezoneConverter(gtFilteredBrandLabel.col(&quot;timezone&quot;),gtFilteredBrandLabel.col(&quot;action_timestamp&quot;)))</span>
+
+<span class="nc" id="L185">      val gtFactsWithHour = gtWithExpectedTimezone</span>
+<span class="nc" id="L186">        .withColumn(&quot;date&quot;,to_date(gtWithExpectedTimezone.col(&quot;local_timestamp&quot;),&quot;yyyy-MM-dd&quot;))</span>
+<span class="nc" id="L187">        .withColumn(&quot;hour&quot;,hour(gtWithExpectedTimezone.col(&quot;local_timestamp&quot;)))</span>
+
+<span class="nc" id="L189">      val TwentyThreeToOne = &quot;23:00-01:00&quot;</span>
+<span class="nc" id="L190">      val TwoToFour = &quot;02:00-04:00&quot;</span>
+<span class="nc" id="L191">      val ElevenToThirteen = &quot;11:00-13:00&quot;</span>
+<span class="nc" id="L192">      val FourteenToSixteen = &quot;14:00-16:00&quot;</span>
+
+<span class="nc" id="L194">      val gtWithDayparts = gtFactsWithHour</span>
+<span class="nc" id="L195">        .withColumn(&quot;day&quot;,Tools.dayplus0(gtFactsWithHour.col(&quot;day&quot;)))</span>
+<span class="nc" id="L196">        .withColumn(&quot;daypart&quot;,when(gtFactsWithHour.col(&quot;hour&quot;)===&quot;0&quot;,lit(TwentyThreeToOne))</span>
+<span class="nc" id="L197">          .when(gtFactsWithHour.col(&quot;hour&quot;)===&quot;2&quot;,lit(TwoToFour))</span>
+<span class="nc" id="L198">          .when(gtFactsWithHour.col(&quot;hour&quot;)===&quot;3&quot;,lit(TwoToFour))</span>
+<span class="nc" id="L199">          .when(gtFactsWithHour.col(&quot;hour&quot;)===&quot;4&quot;,lit(TwoToFour))</span>
+<span class="nc" id="L200">          .when(gtFactsWithHour.col(&quot;hour&quot;)===&quot;5&quot;,lit(&quot;05:00-06:00&quot;))</span>
+<span class="nc" id="L201">          .when(gtFactsWithHour.col(&quot;hour&quot;)===&quot;6&quot;,lit(&quot;05:00-06:00&quot;))</span>
+<span class="nc" id="L202">          .when(gtFactsWithHour.col(&quot;hour&quot;)===&quot;7&quot;,lit(&quot;07:00-08:00&quot;))</span>
+<span class="nc" id="L203">          .when(gtFactsWithHour.col(&quot;hour&quot;)===&quot;8&quot;,lit(&quot;07:00-08:00&quot;))</span>
+<span class="nc" id="L204">          .when(gtFactsWithHour.col(&quot;hour&quot;)===&quot;9&quot;,lit(&quot;09:00-10:00&quot;))</span>
+<span class="nc" id="L205">          .when(gtFactsWithHour.col(&quot;hour&quot;)===&quot;10&quot;,lit(&quot;09:00-10:00&quot;))</span>
+<span class="nc" id="L206">          .when(gtFactsWithHour.col(&quot;hour&quot;)===&quot;11&quot;,lit(ElevenToThirteen))</span>
+<span class="nc" id="L207">          .when(gtFactsWithHour.col(&quot;hour&quot;)===&quot;12&quot;,lit(ElevenToThirteen))</span>
+<span class="nc" id="L208">          .when(gtFactsWithHour.col(&quot;hour&quot;)===&quot;13&quot;,lit(ElevenToThirteen))</span>
+<span class="nc" id="L209">          .when(gtFactsWithHour.col(&quot;hour&quot;)===&quot;14&quot;,lit(FourteenToSixteen))</span>
+<span class="nc" id="L210">          .when(gtFactsWithHour.col(&quot;hour&quot;)===&quot;15&quot;,lit(FourteenToSixteen))</span>
+<span class="nc" id="L211">          .when(gtFactsWithHour.col(&quot;hour&quot;)===&quot;16&quot;,lit(FourteenToSixteen))</span>
+<span class="nc" id="L212">          .when(gtFactsWithHour.col(&quot;hour&quot;)===&quot;17&quot;,lit(&quot;17:00-18:00&quot;))</span>
+<span class="nc" id="L213">          .when(gtFactsWithHour.col(&quot;hour&quot;)===&quot;18&quot;,lit(&quot;17:00-18:00&quot;))</span>
+<span class="nc" id="L214">          .when(gtFactsWithHour.col(&quot;hour&quot;)===&quot;19&quot;,lit(&quot;19:00-20:00&quot;))</span>
+<span class="nc" id="L215">          .when(gtFactsWithHour.col(&quot;hour&quot;)===&quot;20&quot;,lit(&quot;19:00-20:00&quot;))</span>
+<span class="nc" id="L216">          .when(gtFactsWithHour.col(&quot;hour&quot;)===&quot;21&quot;,lit(&quot;21:00-22:00&quot;))</span>
+<span class="nc" id="L217">          .when(gtFactsWithHour.col(&quot;hour&quot;)===&quot;22&quot;,lit(&quot;21:00-22:00&quot;))</span>
+<span class="nc" id="L218">          .when(gtFactsWithHour.col(&quot;hour&quot;)===&quot;23&quot;,lit(TwentyThreeToOne))</span>
+<span class="nc" id="L219">          .when(gtFactsWithHour.col(&quot;hour&quot;)===&quot;24&quot;,lit(TwentyThreeToOne))</span>
+<span class="nc" id="L220">          .otherwise(lit(&quot;NA&quot;)))</span>
+
+<span class="nc" id="L222">      var partitionColumns = List(&quot;prcdate&quot;,&quot;date&quot;)</span>
+<span class="nc" id="L223">      var selectColumns = Seq(col(&quot;date&quot;),col(&quot;mbid&quot;),col(&quot;hhid&quot;),col(&quot;category&quot;),col(&quot;brand&quot;),col(&quot;city&quot;),col(&quot;mbid_value&quot;),col(&quot;hhid_value&quot;),col(&quot;state&quot;),col(&quot;daypart&quot;),col(&quot;prcdate&quot;))</span>
+<span class="nc bnc" id="L224" title="All 2 branches missed.">      if (!processingOption.usePrcDateWriting){</span>
+<span class="nc" id="L225">        partitionColumns = List(&quot;date&quot;)</span>
+<span class="nc" id="L226">        selectColumns = Seq(col(&quot;date&quot;),col(&quot;mbid&quot;),col(&quot;hhid&quot;),col(&quot;category&quot;),col(&quot;brand&quot;),col(&quot;city&quot;),col(&quot;mbid_value&quot;),col(&quot;hhid_value&quot;),col(&quot;state&quot;),col(&quot;daypart&quot;))</span>
+      }
+
+<span class="nc" id="L229">      gtWithDayparts</span>
+<span class="nc" id="L230">        .withColumnRenamed(&quot;city_label&quot;,&quot;city&quot;)</span>
+<span class="nc" id="L231">        .withColumnRenamed(&quot;state_abbreviation&quot;,&quot;state&quot;)</span>
+<span class="nc" id="L232">        .withColumn(&quot;prcdate&quot;,concat(lit(processingOption.prossesingYear),lit(month), gtWithDayparts.col(&quot;day&quot;)))</span>
+<span class="nc" id="L233">        .select(selectColumns:_*)</span>
+<span class="nc" id="L234">        .write.mode(SaveMode.Append)</span>
+<span class="nc" id="L235">        .partitionBy(partitionColumns:_*)</span>
+<span class="nc" id="L236">        .parquet(outputPath)</span>
+    }
+  }
+
+  override def run(args: JSONObject): Unit = {
+
+<span class="fc" id="L242">    val gtCwParquetPath = args.getString(&quot;gt_cw_parquet_path&quot;)</span>
+<span class="fc" id="L243">    val gtFactParquetBasePath = args.getString(&quot;gt_fact_parquet_base_path&quot;)</span>
+<span class="fc" id="L244">    val zipcodeGeoDetailPath = args.getString(&quot;zipcode_geo_detail_path&quot;)</span>
+<span class="fc" id="L245">    val cityNamesMapPath = args.getString(&quot;city_names_map_path&quot;)</span>
+<span class="fc" id="L246">    val infobasePath = args.getString(&quot;infobase_path&quot;)</span>
+<span class="fc" id="L247">    val prossesingYear = args.getString(&quot;prossesing_year&quot;)</span>
+<span class="fc" id="L248">    val prosesingMonths = args.getSeq[String](&quot;prosesing_months&quot;)</span>
+<span class="fc" id="L249">    val outputPath = args.getString(&quot;output_path&quot;)</span>
+<span class="fc" id="L250">    val usePrcDateWriting = args.getBoolean(&quot;use_prc_date_writing&quot;)</span>
+
+<span class="fc" id="L252">    val processingOption = ProcessingOption(prossesingYear,prosesingMonths,usePrcDateWriting)</span>
+
+<span class="fc" id="L254">    generateSQL(</span>
+<span class="fc" id="L255">      gtCwParquetPath,</span>
+<span class="fc" id="L256">      gtFactParquetBasePath,</span>
+<span class="fc" id="L257">      zipcodeGeoDetailPath,</span>
+<span class="fc" id="L258">      cityNamesMapPath,</span>
+<span class="fc" id="L259">      infobasePath,</span>
+<span class="fc" id="L260">      processingOption,</span>
+<span class="fc" id="L261">      outputPath</span>
+    )
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

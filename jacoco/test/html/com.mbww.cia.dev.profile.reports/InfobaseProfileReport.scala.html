@@ -1,0 +1,236 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>InfobaseProfileReport.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.profile.reports</a> &gt; <span class="el_source">InfobaseProfileReport.scala</span></div><h1>InfobaseProfileReport.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.profile.reports
+
+import com.mbww.cia.common.Module
+import com.mbww.cia.common.Spark._
+import com.mbww.cia.core.exception.MismatchException
+import org.apache.spark.sql.{Column, DataFrame}
+import org.apache.spark.sql.functions._
+import org.json.JSONObject
+
+/**
+  * Infobase Profile Report
+  *
+  * This class contains the logic to generate the profile
+  * report for infobase.
+  */
+<span class="nc" id="L16">class InfobaseProfileReport extends Module</span>
+    with CrosswalkIdMatcher
+    with DisplayName2ColumnMatcher
+    with OutputColumnHelper {
+
+    def getOutputSelectColumns(outputColumns: Array[OutputColumn]): Seq[Column] = {
+<span class="nc" id="L22">        outputColumns.map{ outputSpec =&gt;</span>
+<span class="nc" id="L23">            when(col(outputSpec.inputColName) === lit(outputSpec.value),</span>
+<span class="nc" id="L24">                lit(1)).otherwise(lit(0))</span>
+<span class="nc" id="L25">              .cast(&quot;byte&quot;)</span>
+<span class="nc" id="L26">              .as(outputSpec.outputColName)</span>
+<span class="nc" id="L27">        }.toSeq</span>
+    }
+
+    def computeRawOutput(df: DataFrame, select: Seq[Column]): DataFrame = {
+<span class="nc" id="L31">        val selectColumns = Seq(col(&quot;numericId&quot;).cast(&quot;bigint&quot;).as(&quot;numericId&quot;)) ++ select</span>
+<span class="nc" id="L32">        df.select(selectColumns:_*)</span>
+    }
+
+    protected def deduplicateRecords(df: DataFrame, outputColumns: Array[OutputColumn]): DataFrame = {
+<span class="nc" id="L36">        val groupedCols = outputColumns.map{ outputSpec =&gt;</span>
+<span class="nc" id="L37">            when(sum(col(outputSpec.outputColName)) &gt; 1, lit(1))</span>
+<span class="nc" id="L38">              .otherwise(sum(col(outputSpec.outputColName)))</span>
+<span class="nc" id="L39">              .cast(&quot;byte&quot;)</span>
+<span class="nc" id="L40">              .as(outputSpec.outputColName)</span>
+<span class="nc" id="L41">        }.toSeq</span>
+
+<span class="nc" id="L43">        df.groupBy(col(&quot;numericId&quot;)).agg(groupedCols.head, groupedCols.tail:_*)</span>
+    }
+
+    protected def saveFinalOutput(df: DataFrame, path: String, partitions: Int): Unit = {
+<span class="nc" id="L47">        df.coalesce(partitions).write.mode(&quot;overwrite&quot;).parquet(path)</span>
+    }
+
+    /**
+      * Generates the infobase report for Japan.
+      *
+      * @param inputPath Infobase input data path
+      * @param crosswalkPath Crosswalk table path
+      * @param numericIdsPath Unique Ids table path
+      * @param outputSpecPath Output specification file path
+      * @param outputPath Output path.
+      */
+    def generateReportInfobaseJP(inputPath: String,
+                                 crosswalkPath: String,
+                                 numericIdsPath: String,
+                                 outputSpecPath: String,
+                                 outputPath: String,
+<span class="nc" id="L64">                                 outputPartitions: Int = 6): Unit = {</span>
+
+        //load the input data
+<span class="nc" id="L67">        val infobaseJPDF = spark.read.parquet(inputPath)</span>
+<span class="nc" id="L68">        val crosswalkDF = spark.read.parquet(crosswalkPath)</span>
+<span class="nc" id="L69">        val uniqueIdDF = spark.read.parquet(numericIdsPath)</span>
+
+<span class="nc" id="L71">        val outputSpecDF = spark.read</span>
+<span class="nc" id="L72">          .option(&quot;inferSchema&quot;, &quot;true&quot;)</span>
+<span class="nc" id="L73">          .option(&quot;header&quot;, &quot;true&quot;)</span>
+<span class="nc" id="L74">          .csv(outputSpecPath)</span>
+
+        //obtain the actual column names for the output
+
+        //get the numerical ids for the input records
+<span class="nc" id="L79">        val withNumericIds = getNumericIds(infobaseJPDF, crosswalkDF, uniqueIdDF)</span>
+
+        //get the output columns configuration to create the final output
+<span class="nc" id="L82">        val outputColumnsConfig = fromOutputSpec(outputSpecDF)</span>
+
+        //get the select columns to transform the input into the expected output
+<span class="nc" id="L85">        val selectColumns = getOutputSelectColumns(outputColumnsConfig)</span>
+
+        //compute the raw output (with duplicates)
+<span class="nc" id="L88">        val rawOutput = computeRawOutput(withNumericIds, selectColumns)</span>
+
+        //Deal with duplicate records
+<span class="nc" id="L91">        val deDupOutput = deduplicateRecords(rawOutput, outputColumnsConfig)</span>
+
+        //Save the results
+<span class="nc" id="L94">        saveFinalOutput(deDupOutput, outputPath, outputPartitions)</span>
+    }
+
+    /**
+      * Runs the application.
+      *
+      * @param args
+      */
+    override def run(args: JSONObject): Unit = {
+<span class="nc" id="L103">        val inputPath = args.getString(&quot;input_path&quot;)</span>
+<span class="nc" id="L104">        val crosswalkPath = args.getString(&quot;crosswalk_path&quot;)</span>
+<span class="nc" id="L105">        val numericIdsPath = args.getString(&quot;unique_keys_path&quot;)</span>
+<span class="nc" id="L106">        val outputSpecPath = args.getString(&quot;output_spec_path&quot;)</span>
+<span class="nc" id="L107">        val outputPath = args.getString(&quot;output_path&quot;)</span>
+<span class="nc" id="L108">        val outputPartitions = args.getInt(&quot;output_partitions&quot;)</span>
+
+<span class="nc" id="L110">        generateReportInfobaseJP(inputPath,</span>
+<span class="nc" id="L111">            crosswalkPath,</span>
+<span class="nc" id="L112">            numericIdsPath,</span>
+<span class="nc" id="L113">            outputSpecPath,</span>
+<span class="nc" id="L114">            outputPath,</span>
+<span class="nc" id="L115">            outputPartitions)</span>
+
+    }
+}
+
+/**
+  * Output Column.
+  *
+  * Represents a single expected output column.
+  *
+  * It contains three attributes to be used when
+  * operating over the input dataset and manipulating
+  * the output.
+  *
+  * @param inputColName column name as to be found in the input data
+  * @param value expected value to be found in the input column data
+  * @param outputColName expected output column name
+  */
+<span class="pc bnc" id="L133" title="All 34 branches missed.">case class OutputColumn(inputColName: String, value: String, outputColName: String)</span>
+
+/**
+  * Crosswalk Id Matcher.
+  *
+  * Offers capabilities to join crosswalk data and unique id
+  * data with infobase input file to deliver the input data
+  * with the corresponding numeric ids.
+  */
+<span class="fc" id="L142">trait CrosswalkIdMatcher {</span>
+
+    private def joinCrosswalkWithUniqueIds(crosswalk: DataFrame,
+                                           uniqueIds: DataFrame): DataFrame = {
+<span class="fc" id="L146">        crosswalk.join(uniqueIds,</span>
+<span class="fc" id="L147">            crosswalk(&quot;pelid&quot;) === uniqueIds(&quot;stringId&quot;))</span>
+<span class="fc" id="L148">          .select(col(&quot;acx_id&quot;).as(&quot;cw_acx_id&quot;),</span>
+<span class="fc" id="L149">              col(&quot;numericId&quot;).cast(&quot;long&quot;).as(&quot;numericId&quot;)).cache()</span>
+    }
+
+    /**
+      * Joins both the crosswalk data and the unique id data
+      * then joins the result with the input infobase data, and
+      * delivers the later as a data frame.
+      *
+      * @param input infobase input data frame
+      * @param crosswalk crosswalk data frame
+      * @param uniqueIds unique ids data frame
+      * @return
+      */
+    def getNumericIds(input: DataFrame,
+                      crosswalk: DataFrame,
+                      uniqueIds: DataFrame): DataFrame = {
+<span class="fc" id="L165">        val numericalIds = joinCrosswalkWithUniqueIds(crosswalk, uniqueIds)</span>
+<span class="fc" id="L166">        input.join(numericalIds, input(&quot;acx_id&quot;) === numericalIds(&quot;cw_acx_id&quot;))</span>
+    }
+}
+
+/**
+  * Display Name to Column Matcher.
+  *
+  * Offers capabilities to join
+  * a display name column data frame with
+  * a provided output specification data frame
+  *
+  */
+<span class="fc" id="L178">trait DisplayName2ColumnMatcher {</span>
+
+<span class="nc" id="L180">    private def validateAllColumnsMatched(result: DataFrame, outputSpec: DataFrame): Unit = {</span>
+<span class="nc" id="L181">        val displayColsCount = result.count()</span>
+<span class="nc" id="L182">        val outputSpecCount = outputSpec.count()</span>
+<span class="nc bnc" id="L183" title="All 2 branches missed.">        if (displayColsCount != outputSpecCount) {</span>
+<span class="nc" id="L184">            throw MismatchException(&quot;Requested display names columns do not match with dataset-display&quot;)</span>
+        }
+    }
+
+    /**
+      * Joins the display name column data frame and the output
+      * specification to obtain the expected output columns.
+      *
+      * If any of the columns in the output specification is
+      * not found in the provided display name column, this method
+      * will raise a MismatchException.
+      *
+      * @param displayNames data frame
+      * @param outputSpec data frame
+      * @return
+      */
+    def getColumnNamesFromDisplayNames(displayNames: DataFrame,
+                                       outputSpec: DataFrame): DataFrame = {
+<span class="nc" id="L202">        val result =  displayNames.join(outputSpec,</span>
+<span class="nc" id="L203">            displayNames(&quot;Display Name&quot;) === outputSpec(&quot;Full Path&quot;))</span>
+<span class="nc" id="L204">          .select(&quot;Attribute Id&quot;).sort(&quot;Attribute Id&quot;)</span>
+
+<span class="nc" id="L206">        validateAllColumnsMatched(result, outputSpec)</span>
+<span class="nc" id="L207">        result</span>
+    }
+}
+
+/**
+  * Output Column Helper.
+  *
+  * Offers capabilities to create or transform
+  * output column structures.
+  */
+<span class="fc" id="L217">trait OutputColumnHelper {</span>
+
+    /**
+      * Creates an array of OutputColumn from a provided
+      * display name data frame.
+      *
+      * @param df expected output column names.
+      * @return
+      */
+    def fromOutputSpec(df: DataFrame): Array[OutputColumn] = {
+<span class="fc" id="L227">        df.collect().map(_.getString(0)).map{ column =&gt;</span>
+<span class="fc" id="L228">            val parts = column.split(&quot;_&quot;)</span>
+<span class="fc" id="L229">            val inputCol = parts.slice(0, parts.length - 1).mkString(&quot;_&quot;)</span>
+<span class="fc" id="L230">            val value = parts.last</span>
+<span class="fc" id="L231">            val outputCol = column</span>
+<span class="fc" id="L232">            OutputColumn(inputCol, value, outputCol)</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

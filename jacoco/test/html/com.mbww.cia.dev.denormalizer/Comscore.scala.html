@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Comscore.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.denormalizer</a> &gt; <span class="el_source">Comscore.scala</span></div><h1>Comscore.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.denormalizer
+
+import com.mbww.cia.common.Spark._
+import com.mbww.cia.common.{Module, _}
+import org.apache.hadoop.fs.Path
+import org.apache.spark.sql.functions.col
+import org.apache.spark.sql.{DataFrame, SaveMode}
+import org.apache.spark.storage.StorageLevel
+import org.json.JSONObject
+import org.apache.spark.sql._
+import org.apache.spark.sql.functions._
+import org.apache.spark.{SparkConf, SparkContext}
+import org.apache.spark.sql.{SQLContext, SparkSession}
+
+<span class="fc" id="L15">class Comscore extends Module {</span>
+
+<span class="pc bpc" id="L17" title="71 of 72 branches missed.">  case class FactAndAgg (comscoreFactdailyParquetInputpath: String,</span>
+<span class="pc" id="L18">                         aggregationLevel: String,</span>
+<span class="pc" id="L19">                         comscoreFactFilterExpr: String,</span>
+<span class="pc" id="L20">                         comscoreDailyibidOutputpath: String,</span>
+<span class="pc" id="L21">                         comscoreMonthlyibidOutputpath: String,</span>
+<span class="pc" id="L22">                         comscoreHistoricMonthlyAggInputpath: String,</span>
+<span class="pc" id="L23">                         comscoreHistWithCurrMonthlyAggOutpath: String</span>
+                        )
+
+  override def run(args: JSONObject): Unit = {
+
+<span class="fc" id="L28">    val comscoreWhitelistParquetInputpath = args.getString(&quot;comscore_whitelist_parquet_inputpath&quot;)</span>
+<span class="fc" id="L29">    val xwalkInputpath = args.getString(&quot;xwalk_inputpath&quot;)</span>
+<span class="fc" id="L30">    val reducedXwalkOutputpath = args.getString(&quot;reduced_xwalk_outputpath&quot;)</span>
+<span class="fc" id="L31">    val xwalkInputColumns = args.getSeq[String](&quot;xwalk_input_columns&quot;)</span>
+<span class="fc" id="L32">    val comscoreFactdailyParquetInputpath = args.getString(&quot;comscore_factdaily_parquet_inputpath&quot;)</span>
+<span class="fc" id="L33">    val comscoreHistoricMonthlyAggInputpath = args.getString(&quot;comscore_historic_monthly_agg_inputpath&quot;)</span>
+<span class="fc" id="L34">    val aggregationLevel = args.getString(&quot;aggregation_level&quot;)</span>
+<span class="fc" id="L35">    val comscoreFactFilterExpr = args.getString(&quot;comscore_fact_filter_expr&quot;)</span>
+<span class="fc" id="L36">    val comscoreDailyibidOutputpath = args.getString(&quot;comscore_dailyibid_outputpath&quot;)</span>
+<span class="fc" id="L37">    val comscoreMonthlyibidOutputpath = args.getString(&quot;comscore_monthlyibid_outputpath&quot;)</span>
+<span class="fc" id="L38">    val comscoreHistWithCurrMonthlyAggOutpath = args.getString(&quot;comscore_hist_with_curr_monthly_agg_outpath&quot;)</span>
+<span class="fc" id="L39">    val cadence = args.getString(&quot;cadence&quot;)</span>
+
+<span class="fc" id="L41">    val factAndAgg = FactAndAgg(comscoreFactdailyParquetInputpath,</span>
+<span class="fc" id="L42">                                aggregationLevel,</span>
+<span class="fc" id="L43">                                comscoreFactFilterExpr,</span>
+<span class="fc" id="L44">                                comscoreDailyibidOutputpath,</span>
+<span class="fc" id="L45">                                comscoreMonthlyibidOutputpath,</span>
+<span class="fc" id="L46">                                comscoreHistoricMonthlyAggInputpath,</span>
+<span class="fc" id="L47">                                comscoreHistWithCurrMonthlyAggOutpath</span>
+                               )
+
+
+<span class="fc" id="L51">    generate(</span>
+<span class="fc" id="L52">      comscoreWhitelistParquetInputpath,</span>
+<span class="fc" id="L53">      xwalkInputpath,</span>
+<span class="fc" id="L54">      reducedXwalkOutputpath,</span>
+<span class="fc" id="L55">      xwalkInputColumns,</span>
+<span class="fc" id="L56">      factAndAgg,</span>
+<span class="fc" id="L57">      cadence)</span>
+  }
+
+<span class="fc" id="L60">  private val MapRedFilOutComAlgVer = &quot;mapreduce.fileoutputcommitter.algorithm.version&quot;</span>
+
+  def generate(comscoreWhitelistParquetInputpath: String,
+               xwalkInputpath: String,
+               reducedXwalkOutputpath: String,
+               xwalkInputColumns: Seq[String],
+               factAndAgg: FactAndAgg,
+               cadence: String
+<span class="fc" id="L68">              ): Unit = {</span>
+
+<span class="pc bpc" id="L70" title="4 of 6 branches missed.">    if (xwalkInputpath != &quot;&quot;) {</span>
+
+      //Make sure column-comscore_person_id comes last in parameter- xwalk_input_columns in JSON file section.
+<span class="nc" id="L73">      val xwalkDf = spark.read.parquet(xwalkInputpath).select(xwalkInputColumns.map(c =&gt; col(c)): _*)</span>
+<span class="nc" id="L74">      val xwalkNewColumnNames = Seq(&quot;consumer_pel&quot;, &quot;comscore_person_id&quot;)</span>
+<span class="nc" id="L75">      val mainXwalkDf = xwalkDf.toDF(xwalkNewColumnNames: _*)</span>
+<span class="nc" id="L76">      mainXwalkDf.createOrReplaceTempView(&quot;main_xwalk_view&quot;)</span>
+<span class="nc" id="L77">      val mainXwalkDistinctDf = sql.sql(&quot;Select consumer_pel, comscore_person_id from (select consumer_pel, comscore_person_id, ROW_NUMBER() OVER (PARTITION BY consumer_pel, comscore_person_id ORDER BY comscore_person_id) as RowNum from main_xwalk_view)x where RowNum=1&quot;)</span>
+<span class="nc" id="L78">      mainXwalkDistinctDf.write.mode(SaveMode.Overwrite).option(MapRedFilOutComAlgVer, &quot;2&quot;).parquet(reducedXwalkOutputpath)</span>
+    }
+
+<span class="pc bpc" id="L81" title="4 of 6 branches missed.">    if (cadence == &quot;Regular&quot;) {</span>
+
+<span class="pc bpc" id="L83" title="4 of 6 branches missed.">      if (factAndAgg.aggregationLevel == &quot;Daily&quot;) {</span>
+<span class="nc" id="L84">        generateAggregatedDaily(</span>
+<span class="nc" id="L85">          comscoreWhitelistParquetInputpath,</span>
+<span class="nc" id="L86">          factAndAgg.comscoreFactdailyParquetInputpath,</span>
+<span class="nc" id="L87">          factAndAgg.comscoreFactFilterExpr,</span>
+<span class="nc" id="L88">          factAndAgg.comscoreDailyibidOutputpath)</span>
+      }
+
+<span class="pc bpc" id="L91" title="4 of 6 branches missed.">      else if (factAndAgg.aggregationLevel == &quot;Monthly&quot;) {</span>
+<span class="nc" id="L92">        generateAggregatedMonthly(</span>
+<span class="nc" id="L93">          factAndAgg.comscoreDailyibidOutputpath,</span>
+<span class="nc" id="L94">          factAndAgg.comscoreMonthlyibidOutputpath,</span>
+<span class="nc" id="L95">          factAndAgg.comscoreHistoricMonthlyAggInputpath,</span>
+<span class="nc" id="L96">          factAndAgg.comscoreHistWithCurrMonthlyAggOutpath)</span>
+      }
+
+<span class="pc bpc" id="L99" title="4 of 6 branches missed.">      else if (factAndAgg.aggregationLevel == &quot;Daily_And_Monthly&quot;) {</span>
+<span class="fc" id="L100">        generateAggregatedDailyAndMonthly(</span>
+<span class="fc" id="L101">          comscoreWhitelistParquetInputpath,</span>
+<span class="fc" id="L102">          factAndAgg.comscoreFactdailyParquetInputpath,</span>
+<span class="fc" id="L103">          factAndAgg.comscoreFactFilterExpr,</span>
+<span class="fc" id="L104">          factAndAgg.comscoreDailyibidOutputpath,</span>
+<span class="fc" id="L105">          factAndAgg.comscoreMonthlyibidOutputpath,</span>
+<span class="fc" id="L106">          factAndAgg.comscoreHistoricMonthlyAggInputpath,</span>
+<span class="fc" id="L107">          factAndAgg.comscoreHistWithCurrMonthlyAggOutpath)</span>
+      }
+    }
+
+<span class="nc bnc" id="L111" title="All 6 branches missed.">    else if (cadence == &quot;First&quot;) {</span>
+
+<span class="nc bnc" id="L113" title="All 6 branches missed.">      if (factAndAgg.aggregationLevel == &quot;Daily&quot;) {</span>
+<span class="nc" id="L114">        generateAggregatedDailyFirst(</span>
+<span class="nc" id="L115">          comscoreWhitelistParquetInputpath,</span>
+<span class="nc" id="L116">          factAndAgg.comscoreFactdailyParquetInputpath,</span>
+<span class="nc" id="L117">          factAndAgg.comscoreFactFilterExpr,</span>
+<span class="nc" id="L118">          factAndAgg.comscoreDailyibidOutputpath)</span>
+      }
+
+<span class="nc bnc" id="L121" title="All 6 branches missed.">      else if (factAndAgg.aggregationLevel == &quot;Monthly&quot;) {</span>
+<span class="nc" id="L122">        generateAggregatedMonthlyFirst(</span>
+<span class="nc" id="L123">          factAndAgg.comscoreDailyibidOutputpath,</span>
+<span class="nc" id="L124">          factAndAgg.comscoreMonthlyibidOutputpath,</span>
+<span class="nc" id="L125">          factAndAgg.comscoreHistoricMonthlyAggInputpath,</span>
+<span class="nc" id="L126">          factAndAgg.comscoreHistWithCurrMonthlyAggOutpath)</span>
+      }
+
+<span class="nc bnc" id="L129" title="All 6 branches missed.">      else if (factAndAgg.aggregationLevel == &quot;Daily_And_Monthly&quot;) {</span>
+<span class="nc" id="L130">        generateAggregatedDailyAndMonthlyFirst(</span>
+<span class="nc" id="L131">          comscoreWhitelistParquetInputpath,</span>
+<span class="nc" id="L132">          factAndAgg.comscoreFactdailyParquetInputpath,</span>
+<span class="nc" id="L133">          factAndAgg.comscoreFactFilterExpr,</span>
+<span class="nc" id="L134">          factAndAgg.comscoreDailyibidOutputpath,</span>
+<span class="nc" id="L135">          factAndAgg.comscoreMonthlyibidOutputpath,</span>
+<span class="nc" id="L136">          factAndAgg.comscoreHistoricMonthlyAggInputpath,</span>
+<span class="nc" id="L137">          factAndAgg.comscoreHistWithCurrMonthlyAggOutpath)</span>
+      }
+    }
+  }
+
+  def generateAggregatedDailyAndMonthly(comscoreWhitelistParquetInputpath: String,
+                                        comscoreFactdailyParquetInputpath: String,
+                                        comscoreFactFilterExpr: String,
+                                        comscoreDailyibidOutputpath: String,
+                                        comscoreMonthlyibidOutputpath: String,
+                                        comscoreHistoricMonthlyAggInputpath: String,
+                                        comscoreHistWithCurrMonthlyAggOutpath: String): Unit = {
+<span class="fc" id="L149">    generateAggregatedDaily(</span>
+<span class="fc" id="L150">      comscoreWhitelistParquetInputpath,</span>
+<span class="fc" id="L151">      comscoreFactdailyParquetInputpath,</span>
+<span class="fc" id="L152">      comscoreFactFilterExpr,</span>
+<span class="fc" id="L153">      comscoreDailyibidOutputpath)</span>
+
+<span class="fc" id="L155">    generateAggregatedMonthly(</span>
+<span class="fc" id="L156">      comscoreDailyibidOutputpath,</span>
+<span class="fc" id="L157">      comscoreMonthlyibidOutputpath,</span>
+<span class="fc" id="L158">      comscoreHistoricMonthlyAggInputpath,</span>
+<span class="fc" id="L159">      comscoreHistWithCurrMonthlyAggOutpath)</span>
+  }
+
+  def generateAggregatedDaily(comscoreWhitelistParquetInputpath: String,
+                              comscoreFactdailyParquetInputpath: String,
+                              comscoreFactFilterExpr: String,
+                              comscoreDailyibidOutputpath: String): Unit = {
+<span class="fc" id="L166">    val domainWhiteListDf = spark.read.parquet(comscoreWhitelistParquetInputpath)</span>
+
+<span class="pc bpc" id="L168" title="1 of 2 branches missed.">    val dfFactdaily = if (!comscoreFactFilterExpr.isEmpty) {</span>
+<span class="fc" id="L169">      spark.read.parquet(comscoreFactdailyParquetInputpath).filter(comscoreFactFilterExpr).drop(&quot;comscore_machine_id&quot;, &quot;url_refer_domain&quot;, &quot;action_hour&quot;, &quot;action_month_id&quot;, &quot;traffic_count&quot;)</span>
+    } else {
+<span class="nc" id="L171">      spark.read.parquet(comscoreFactdailyParquetInputpath).drop(&quot;comscore_machine_id&quot;, &quot;url_refer_domain&quot;, &quot;action_hour&quot;, &quot;action_month_id&quot;, &quot;traffic_count&quot;)</span>
+    }
+
+<span class="fc" id="L174">    val factPerDayDf = dfFactdaily.withColumn(&quot;day&quot;, date_format(to_timestamp(col(&quot;action_date&quot;), &quot;yyyy-MM-dd HH:mm:ss&quot;), &quot;dd&quot;))</span>
+<span class="fc" id="L175">    val joinedDf = domainWhiteListDf.join(factPerDayDf, domainWhiteListDf(&quot;domain_name&quot;) === factPerDayDf(&quot;domain_name&quot;), &quot;inner&quot;).select(factPerDayDf(&quot;comscore_person_id&quot;), factPerDayDf(&quot;domain_name&quot;), factPerDayDf(&quot;day&quot;))</span>
+<span class="fc" id="L176">    joinedDf.createOrReplaceTempView(&quot;main_daily_view&quot;)</span>
+<span class="fc" id="L177">    val mainDailyDistbyDf = sql.sql(&quot;Select comscore_person_id,domain_name,day from (select *, ROW_NUMBER() OVER(PARTITION BY comscore_person_id, domain_name, day ORDER BY domain_name) as RowNum from main_daily_view)x where RowNum=1 DISTRIBUTE BY domain_name&quot;)</span>
+<span class="fc" id="L178">    mainDailyDistbyDf.write.mode(SaveMode.Overwrite).partitionBy(&quot;day&quot;, &quot;domain_name&quot;).option(MapRedFilOutComAlgVer, &quot;2&quot;).parquet(comscoreDailyibidOutputpath)</span>
+  }
+
+  def generateAggregatedMonthly(comscoreDailyibidOutputpath: String,
+                                comscoreMonthlyibidOutputpath: String,
+                                comscoreHistoricMonthlyAggInputpath: String,
+                                comscoreHistWithCurrMonthlyAggOutpath: String): Unit = {
+
+<span class="fc" id="L186">    val dailyIbidDf = spark.read.parquet(comscoreDailyibidOutputpath).drop(&quot;day&quot;)</span>
+<span class="fc" id="L187">    dailyIbidDf.createOrReplaceTempView(&quot;daily_ibid_view&quot;)</span>
+<span class="fc" id="L188">    val mainMonthlyDf = sql.sql(&quot;Select comscore_person_id,domain_name from (select *, ROW_NUMBER() OVER(PARTITION BY comscore_person_id, domain_name ORDER BY domain_name) as RowNum from daily_ibid_view)x where RowNum=1 DISTRIBUTE BY domain_name&quot;)</span>
+<span class="fc" id="L189">    mainMonthlyDf.write.mode(SaveMode.Overwrite).partitionBy(&quot;domain_name&quot;).option(MapRedFilOutComAlgVer, &quot;2&quot;).parquet(comscoreMonthlyibidOutputpath)</span>
+
+<span class="fc" id="L191">    val histMonthlyAggData = spark.read.parquet(comscoreHistoricMonthlyAggInputpath).drop(&quot;year&quot;, &quot;month&quot;) //</span>
+<span class="fc" id="L192">    histMonthlyAggData.createOrReplaceTempView(&quot;hist_monthly_agg_data_view&quot;)</span>
+<span class="fc" id="L193">    val mainHistMonthlyAggData = sql.sql(&quot;Select comscore_person_id,domain_name from (select *, ROW_NUMBER() OVER(PARTITION BY comscore_person_id, domain_name ORDER BY domain_name) as RowNum from hist_monthly_agg_data_view)x where RowNum=1 DISTRIBUTE BY domain_name&quot;)</span>
+<span class="fc" id="L194">    val mainDenormAggDf = mainHistMonthlyAggData.union(mainMonthlyDf).dropDuplicates(&quot;comscore_person_id&quot;, &quot;domain_name&quot;)</span>
+<span class="fc" id="L195">    mainDenormAggDf.write.mode(SaveMode.Overwrite).option(MapRedFilOutComAlgVer, &quot;2&quot;).parquet(comscoreHistWithCurrMonthlyAggOutpath)</span>
+  }
+
+  // First time processing of dataset
+  def generateAggregatedDailyAndMonthlyFirst(comscoreWhitelistParquetInputpath: String,
+                                             comscoreFactdailyParquetInputpath: String,
+                                             comscoreFactFilterExpr: String,
+                                             comscoreDailyibidOutputpath: String,
+                                             comscoreMonthlyibidOutputpath: String,
+                                             comscoreHistoricMonthlyAggInputpath: String,
+                                             comscoreHistWithCurrMonthlyAggOutpath: String): Unit = {
+<span class="nc" id="L206">    generateAggregatedDailyFirst(</span>
+<span class="nc" id="L207">      comscoreWhitelistParquetInputpath,</span>
+<span class="nc" id="L208">      comscoreFactdailyParquetInputpath,</span>
+<span class="nc" id="L209">      comscoreFactFilterExpr,</span>
+<span class="nc" id="L210">      comscoreDailyibidOutputpath)</span>
+
+<span class="nc" id="L212">    generateAggregatedMonthlyFirst(</span>
+<span class="nc" id="L213">      comscoreDailyibidOutputpath,</span>
+<span class="nc" id="L214">      comscoreMonthlyibidOutputpath,</span>
+<span class="nc" id="L215">      comscoreHistoricMonthlyAggInputpath,</span>
+<span class="nc" id="L216">      comscoreHistWithCurrMonthlyAggOutpath)</span>
+  }
+
+  def generateAggregatedDailyFirst(comscoreWhitelistParquetInputpath: String,
+                                   comscoreFactdailyParquetInputpath: String,
+                                   comscoreFactFilterExpr: String,
+                                   comscoreDailyibidOutputpath: String): Unit = {
+<span class="nc" id="L223">    val domainWhiteListDf = spark.read.parquet(comscoreWhitelistParquetInputpath)</span>
+
+<span class="nc bnc" id="L225" title="All 2 branches missed.">    val dfFactdaily = if (!comscoreFactFilterExpr.isEmpty) {</span>
+<span class="nc" id="L226">      spark.read.parquet(comscoreFactdailyParquetInputpath).filter(comscoreFactFilterExpr).drop(&quot;comscore_machine_id&quot;, &quot;url_refer_domain&quot;, &quot;action_hour&quot;, &quot;action_month_id&quot;, &quot;traffic_count&quot;)</span>
+    } else {
+<span class="nc" id="L228">      spark.read.parquet(comscoreFactdailyParquetInputpath).drop(&quot;comscore_machine_id&quot;, &quot;url_refer_domain&quot;, &quot;action_hour&quot;, &quot;action_month_id&quot;, &quot;traffic_count&quot;)</span>
+    }
+
+<span class="nc" id="L231">    val factPerDayDf = dfFactdaily.withColumn(&quot;day&quot;, date_format(to_timestamp(col(&quot;action_date&quot;), &quot;yyyy-MM-dd HH:mm:ss&quot;), &quot;dd&quot;))</span>
+<span class="nc" id="L232">    val joinedDf = domainWhiteListDf.join(factPerDayDf, domainWhiteListDf(&quot;domain_name&quot;) === factPerDayDf(&quot;domain_name&quot;), &quot;inner&quot;).select(factPerDayDf(&quot;comscore_person_id&quot;), factPerDayDf(&quot;domain_name&quot;), factPerDayDf(&quot;year&quot;), factPerDayDf(&quot;month&quot;), factPerDayDf(&quot;day&quot;))</span>
+<span class="nc" id="L233">    joinedDf.createOrReplaceTempView(&quot;main_daily_view&quot;)</span>
+<span class="nc" id="L234">    val mainDailyDistbyDf = sql.sql(&quot;Select comscore_person_id,domain_name,year,month,day from (select *, ROW_NUMBER() OVER(PARTITION BY comscore_person_id, domain_name, year, month, day ORDER BY year) as RowNum from main_daily_view)x where RowNum=1 DISTRIBUTE BY domain_name&quot;)</span>
+<span class="nc" id="L235">    mainDailyDistbyDf.write.mode(SaveMode.Overwrite).partitionBy(&quot;year&quot;, &quot;month&quot;, &quot;day&quot;, &quot;domain_name&quot;).option(MapRedFilOutComAlgVer, &quot;2&quot;).parquet(comscoreDailyibidOutputpath)</span>
+  }
+
+  def generateAggregatedMonthlyFirst(comscoreDailyibidOutputpath: String,
+                                     comscoreMonthlyibidOutputpath: String,
+                                     comscoreHistoricMonthlyAggInputpath: String,
+                                     comscoreHistWithCurrMonthlyAggOutpath: String): Unit = {
+<span class="nc" id="L242">    val dailyIbidDf = spark.read.parquet(comscoreDailyibidOutputpath).drop(&quot;day&quot;)</span>
+<span class="nc" id="L243">    dailyIbidDf.createOrReplaceTempView(&quot;main_daily_ibid_view&quot;)</span>
+<span class="nc" id="L244">    val mainMonthlyDf = sql.sql(&quot;Select comscore_person_id,domain_name,year,month from (select *, ROW_NUMBER() OVER(PARTITION BY comscore_person_id, domain_name, year, month ORDER BY year) as RowNum from main_daily_ibid_view)x where RowNum=1 DISTRIBUTE BY domain_name&quot;)</span>
+<span class="nc" id="L245">    mainMonthlyDf.write.mode(SaveMode.Overwrite).partitionBy(&quot;year&quot;, &quot;month&quot;, &quot;domain_name&quot;).option(MapRedFilOutComAlgVer, &quot;2&quot;).parquet(comscoreMonthlyibidOutputpath)</span>
+
+<span class="nc" id="L247">    mainMonthlyDf.createOrReplaceTempView(&quot;main_monthly_view&quot;)</span>
+<span class="nc" id="L248">    val denormAggDf = sql.sql(&quot;Select comscore_person_id,domain_name from (select *, ROW_NUMBER() OVER(PARTITION BY comscore_person_id, domain_name ORDER BY domain_name) as RowNum from main_monthly_view)x where RowNum=1 DISTRIBUTE BY domain_name&quot;)</span>
+<span class="nc" id="L249">    denormAggDf.write.mode(SaveMode.Overwrite).option(MapRedFilOutComAlgVer, &quot;2&quot;).parquet(comscoreHistWithCurrMonthlyAggOutpath)</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>customSegmentValidation.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.qa.denormalizer</a> &gt; <span class="el_source">customSegmentValidation.scala</span></div><h1>customSegmentValidation.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.qa.denormalizer
+import java.io.FileNotFoundException
+
+import com.amazonaws.services.s3.AmazonS3
+import com.mbww.cia.common.Module
+import com.mbww.cia.common.Spark._
+import com.mbww.cia.qa.utils.UtilsFunction.getLinesFromFile
+import com.mbww.cia.qa.utils.{FileData, Setup}
+import org.apache.spark.sql.types._
+import org.json.JSONObject
+import org.slf4j.LoggerFactory
+<span class="nc" id="L12">class customSegmentValidation extends Module {</span>
+
+<span class="nc" id="L14">  val logger = LoggerFactory.getLogger(&quot;CIA Pipeline&quot;)</span>
+<span class="nc" id="L15">  override def run(args: JSONObject): Unit = {</span>
+<span class="nc" id="L16">    val marketName = args.getString(&quot;marketName&quot;)</span>
+<span class="nc" id="L17">    val bucket = args.getString(&quot;bucket&quot;)</span>
+<span class="nc" id="L18">    val dataProviderName = args.getString(&quot;dataProviderName&quot;)</span>
+<span class="nc" id="L19">    val matchingPartnerName = args.getString(&quot;matchingPartnerName&quot;)</span>
+<span class="nc" id="L20">    val uniqueIdFilePath = args.getString(&quot;infobase_path&quot;)</span>
+<span class="nc" id="L21">    val bitmapType=args.getString(&quot;bitmapType&quot;).toUpperCase</span>
+<span class="nc" id="L22">    var setup = new Setup(marketName, bucket, dataProviderName, matchingPartnerName)</span>
+<span class="nc" id="L23">    var awsS3Client = setup.awsS3Client</span>
+<span class="nc" id="L24">    val pColumns = FileData.dataProviderData(awsS3Client, setup).par</span>
+<span class="nc" id="L25">    val schema = StructType(Array(</span>
+<span class="nc" id="L26">      StructField(&quot;mbid&quot;, StringType, true),</span>
+<span class="nc" id="L27">      StructField(&quot;hhid&quot;, StringType, true)</span>
+    ))
+<span class="nc bnc" id="L29" title="All 6 branches missed.">    if (marketName == &quot;US&quot;) {</span>
+<span class="nc bnc" id="L30" title="All 4 branches missed.">      pColumns.foreach(x =&gt; if(!(mbidCountValidation(awsS3Client, setup, bucket, x(1), schema, uniqueIdFilePath,bitmapType, &quot;\t&quot;))){</span>
+<span class="nc" id="L31">        throw new RuntimeException( &quot; --------------mbidCountValidationis not correct ----  &quot;)</span>
+      })
+<span class="nc bnc" id="L33" title="All 4 branches missed.">      pColumns.foreach(x =&gt; if(!(hhidCountValidation(awsS3Client, setup, bucket, x(1), schema, uniqueIdFilePath, &quot;\t&quot;))){</span>
+<span class="nc" id="L34">        throw new RuntimeException( &quot; --------------hhidCountValidation not correct ----  &quot;)</span>
+      })
+    }
+    else {
+<span class="nc bnc" id="L38" title="All 4 branches missed.">      pColumns.foreach(x =&gt; if(!(mbidCountValidation(awsS3Client, setup, bucket, x(1), schema, uniqueIdFilePath, bitmapType,&quot;\t&quot;))){</span>
+<span class="nc" id="L39">        throw new RuntimeException( &quot; --------------mbidCountValidationis not correct ----  &quot;)</span>
+      })
+    }
+  }
+<span class="nc" id="L43">  def mbidCountValidation(awsS3Client: AmazonS3,setup:Setup,bucketName:String ,dataSetFileData: Any,schema:StructType, uniqueIdFilePath:String,bitmapType:String,delimiter: String = &quot;\t&quot;): Boolean = {</span>
+<span class="nc" id="L44">    val dataSetType = dataSetFileData.toString.split(delimiter)(3)</span>
+<span class="nc bnc" id="L45" title="All 2 branches missed.">    if (!dataSetType.equals(&quot;Custom Attr&quot;))</span>
+    {
+<span class="nc" id="L47">      try {</span>
+<span class="nc" id="L48">        val bitmapFilePath = setup.bitmapFilePath(dataSetFileData.toString.split(delimiter)(6), dataSetFileData.toString.split(delimiter)(8), dataSetFileData.toString.split(delimiter)(13)).drop(1)</span>
+<span class="nc" id="L49">        val lineIterator = getLinesFromFile(&quot;s3://&quot; + setup.bucketName + &quot;/&quot; + bitmapFilePath, awsS3Client)</span>
+<span class="nc" id="L50">        lineIterator.drop(1)</span>
+<span class="nc bnc" id="L51" title="All 2 branches missed.">        for (i &lt;- lineIterator) {</span>
+<span class="nc" id="L52">          val data = i.split(delimiter)</span>
+<span class="nc bnc" id="L53" title="All 6 branches missed.">          if (data(1) == bitmapType) {</span>
+<span class="nc" id="L54">            val mbidCount = data(3)</span>
+<span class="nc" id="L55">            val rawDataPath = &quot;s3://&quot; + bucketName + &quot;/input/raw/matching_partner=acxiom/custom-segments/amazon/AttributeName=&quot; + data(0) + &quot;/&quot;</span>
+
+<span class="nc" id="L57">            var rawDF = spark.read.option(&quot;delimiter&quot;, delimiter).schema(schema).format(&quot;csv&quot;).load(rawDataPath)</span>
+<span class="nc" id="L58">            val uniqueIdDF = spark.read.load(uniqueIdFilePath)</span>
+<span class="nc" id="L59">            val selectedDataFrame = uniqueIdDF.select(&quot;mbid&quot;, &quot;mbid_value&quot;)</span>
+<span class="nc" id="L60">            val expectedDF = selectedDataFrame.join(rawDF, selectedDataFrame(&quot;mbid_value&quot;) === rawDF(&quot;mbid&quot;), &quot;inner&quot;).select(selectedDataFrame.col(&quot;mbid&quot;))</span>
+<span class="nc" id="L61">            val expectedCount = expectedDF.distinct().count.toString</span>
+<span class="nc bnc" id="L62" title="All 6 branches missed.">            if (!(mbidCount == expectedCount)) {</span>
+<span class="nc" id="L63">              throw new RuntimeException(</span>
+<span class="nc" id="L64">                s&quot;Actual file count ${mbidCount} is not same as Expected count ${expectedCount} &quot;)</span>
+            }
+
+<span class="nc" id="L67">            logger.info(&quot;############## Test is validated for &quot; + rawDataPath)</span>
+<span class="nc" id="L68">            logger.info(s&quot;Actual file count ${mbidCount} is  same as Expected count ${expectedCount} &quot;)</span>
+<span class="nc" id="L69">            true</span>
+          }
+        }
+      }
+      catch {
+        case exp: FileNotFoundException =&gt;
+<span class="nc" id="L75">          logger.info(&quot;################### file is not present   &quot; + exp)</span>
+<span class="nc" id="L76">          return false</span>
+        case exp: ArrayIndexOutOfBoundsException =&gt;
+<span class="nc" id="L78">          logger.info(&quot;################### Array Index OutOf Bounds Exception  &quot; + exp)</span>
+<span class="nc" id="L79">          return false</span>
+        case exp: NullPointerException =&gt;
+<span class="nc" id="L81">          logger.info(&quot;null pointer  &quot; + exp)</span>
+<span class="nc" id="L82">          return false</span>
+      }
+    }
+    else
+<span class="nc" id="L86">      logger.info(&quot;------------------ Bitmap File  will not be tested for custom Attr--------------------------&quot;)</span>
+<span class="nc" id="L87">    true</span>
+  }
+
+<span class="nc" id="L90">  def hhidCountValidation(awsS3Client: AmazonS3,setup:Setup,bucketName:String ,dataSetFileData: Any, schema:StructType,uniqueIdFilePath:String,delimiter: String = &quot;\t&quot;): Boolean = {</span>
+<span class="nc" id="L91">    val dataSetType = dataSetFileData.toString.split(delimiter)(3)</span>
+<span class="nc bnc" id="L92" title="All 2 branches missed.">    if (!dataSetType.equals(&quot;Custom Attr&quot;))</span>
+    {
+<span class="nc" id="L94">      try {</span>
+
+<span class="nc" id="L96">        val bitmapFilePath = setup.bitmapFilePath(dataSetFileData.toString.split(delimiter)(6), dataSetFileData.toString.split(delimiter)(8), dataSetFileData.toString.split(delimiter)(13)).drop(1)</span>
+<span class="nc" id="L97">        val lineIterator = getLinesFromFile(&quot;s3://&quot; + setup.bucketName + &quot;/&quot; + bitmapFilePath, awsS3Client)</span>
+<span class="nc" id="L98">        lineIterator.drop(1)</span>
+<span class="nc bnc" id="L99" title="All 2 branches missed.">        for (i &lt;- lineIterator) {</span>
+<span class="nc" id="L100">          val data = i.split(delimiter)</span>
+<span class="nc" id="L101">          val hhidCount=data(5)</span>
+<span class="nc" id="L102">          val rawDataPath = &quot;s3://&quot; + bucketName + &quot;/input/raw/matching_partner=acxiom/custom-segments/amazon/AttributeName=&quot; + data(0) + &quot;/&quot;</span>
+<span class="nc" id="L103">          var rawDF=spark.read.option(&quot;delimiter&quot;,delimiter).schema(schema).format(&quot;csv&quot;).load(rawDataPath)</span>
+<span class="nc" id="L104">          val uniqueIdDF=spark.read.load(uniqueIdFilePath)</span>
+<span class="nc" id="L105">          val selectedDataFrame=uniqueIdDF.select(&quot;hhid&quot;,&quot;hhid_value&quot;)</span>
+<span class="nc" id="L106">          val expectedDF=selectedDataFrame.join(rawDF,selectedDataFrame(&quot;hhid_value&quot;) === rawDF(&quot;hhid&quot;),&quot;inner&quot;).select(selectedDataFrame.col(&quot;hhid&quot;))</span>
+<span class="nc" id="L107">          val expectedCount=expectedDF.distinct().count.toString</span>
+<span class="nc bnc" id="L108" title="All 6 branches missed.">          if(!(hhidCount ==expectedCount)) {</span>
+<span class="nc" id="L109">            throw new RuntimeException(</span>
+<span class="nc" id="L110">              s&quot;Actual file count ${hhidCount} is not same as Expected count ${expectedCount} &quot;)</span>
+          }
+<span class="nc" id="L112">          logger.info(  s&quot;Actual file count ${hhidCount} is  same as Expected count ${expectedCount} &quot;)</span>
+<span class="nc" id="L113">          true</span>
+        }
+      }
+      catch {
+        case exp: FileNotFoundException =&gt;
+<span class="nc" id="L118">          logger.info(&quot;################### file is not present   &quot; + exp)</span>
+<span class="nc" id="L119">          return false</span>
+        case exp: ArrayIndexOutOfBoundsException =&gt;
+<span class="nc" id="L121">          logger.info(&quot;################### Array Index OutOf Bounds Exception  &quot; + exp)</span>
+<span class="nc" id="L122">          return false</span>
+        case exp: NullPointerException =&gt;
+<span class="nc" id="L124">          logger.info(&quot;null pointer  &quot; + exp)</span>
+<span class="nc" id="L125">          return false</span>
+      }
+    }
+    else
+<span class="nc" id="L129">      logger.info(&quot;------------------ Bitmap File  will not be tested for custom Attr--------------------------&quot;)</span>
+<span class="nc" id="L130">    true</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

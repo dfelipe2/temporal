@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>KinesisDataWriter.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.producer</a> &gt; <span class="el_source">KinesisDataWriter.scala</span></div><h1>KinesisDataWriter.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.producer
+
+import java.util.concurrent.TimeUnit
+
+import com.amazonaws.regions.Regions
+import jp.co.bizreach.kinesis.spark._
+import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.Row
+import org.apache.spark.util.LongAccumulator
+import org.slf4j.{Logger, LoggerFactory}
+
+object KinesisDataWriter {
+
+<span class="nc" id="L14">  val logger: Logger = LoggerFactory.getLogger(&quot;KinesisDataWriter&quot;)</span>
+
+
+  def writeSparkOneDF(region: String,
+                      streamName: String,
+                      toWrite: RDD[Row],
+                      acc: LongAccumulator,
+                      aggBatchSize: Int): Unit = {
+
+<span class="nc" id="L23">    val regionStream =region match {</span>
+
+<span class="nc bnc" id="L25" title="All 2 branches missed.">      case &quot;us-gov-west-1&quot; =&gt; Regions.GovCloud</span>
+<span class="nc bnc" id="L26" title="All 2 branches missed.">      case &quot;us-gov-east-1&quot; =&gt; Regions.US_GOV_EAST_1</span>
+<span class="nc bnc" id="L27" title="All 2 branches missed.">      case &quot;us-east-1&quot; =&gt; Regions.US_EAST_1</span>
+<span class="nc bnc" id="L28" title="All 2 branches missed.">      case &quot;us-east-2&quot; =&gt; Regions.US_EAST_2</span>
+<span class="nc bnc" id="L29" title="All 2 branches missed.">      case &quot;us-west-1&quot; =&gt; Regions.US_WEST_1</span>
+<span class="nc bnc" id="L30" title="All 2 branches missed.">      case &quot;us-west-2&quot; =&gt; Regions.US_WEST_2</span>
+<span class="nc bnc" id="L31" title="All 2 branches missed.">      case &quot;eu-west-1&quot; =&gt; Regions.EU_WEST_1</span>
+<span class="nc bnc" id="L32" title="All 2 branches missed.">      case &quot;eu-west-2&quot; =&gt; Regions.EU_WEST_2</span>
+<span class="nc bnc" id="L33" title="All 2 branches missed.">      case &quot;eu-west-3&quot; =&gt; Regions.EU_WEST_3</span>
+<span class="nc bnc" id="L34" title="All 2 branches missed.">      case &quot;eu-central-1&quot; =&gt; Regions.EU_CENTRAL_1</span>
+<span class="nc bnc" id="L35" title="All 2 branches missed.">      case &quot;eu-north-1&quot; =&gt; Regions.EU_NORTH_1</span>
+<span class="nc bnc" id="L36" title="All 2 branches missed.">      case &quot;ap-east-1&quot; =&gt; Regions.AP_EAST_1</span>
+<span class="nc bnc" id="L37" title="All 2 branches missed.">      case &quot;ap-south-1&quot; =&gt; Regions.AP_SOUTH_1</span>
+<span class="nc bnc" id="L38" title="All 2 branches missed.">      case &quot;ap-southeast-1&quot; =&gt; Regions.AP_SOUTHEAST_1</span>
+<span class="nc bnc" id="L39" title="All 2 branches missed.">      case &quot;ap-southeast-2&quot; =&gt; Regions.AP_SOUTHEAST_2</span>
+<span class="nc bnc" id="L40" title="All 2 branches missed.">      case &quot;ap-northeast-1&quot; =&gt; Regions.AP_NORTHEAST_1</span>
+<span class="nc bnc" id="L41" title="All 2 branches missed.">      case &quot;ap-northeast-2&quot; =&gt; Regions.AP_NORTHEAST_2</span>
+<span class="nc bnc" id="L42" title="All 2 branches missed.">      case &quot;sa-east-1&quot; =&gt; Regions.SA_EAST_1</span>
+<span class="nc bnc" id="L43" title="All 2 branches missed.">      case &quot;cn-north-1&quot; =&gt; Regions.CN_NORTH_1</span>
+<span class="nc bnc" id="L44" title="All 2 branches missed.">      case &quot;cn-northwest-1&quot; =&gt; Regions.CN_NORTHWEST_1</span>
+<span class="nc bnc" id="L45" title="All 2 branches missed.">      case &quot;ca-central-1&quot; =&gt; Regions.CA_CENTRAL_1</span>
+<span class="nc bnc" id="L46" title="All 2 branches missed.">      case &quot;me-south-1&quot; =&gt; Regions.ME_SOUTH_1</span>
+    }
+<span class="nc" id="L48">    logger.info(&quot;Writing batch number: &quot; + acc.sum)</span>
+    // group records in chunks
+<span class="nc" id="L50">    val startTime = System.currentTimeMillis()</span>
+<span class="nc" id="L51">    toWrite.saveToKinesis(</span>
+<span class="nc" id="L52">      streamName = streamName,</span>
+<span class="nc" id="L53">      region = regionStream,</span>
+<span class="nc" id="L54">      chunk = aggBatchSize</span>
+    )
+<span class="nc" id="L56">    acc.add(1)</span>
+<span class="nc" id="L57">    logger.info(&quot;\nProcessed batches: &quot; + acc.sum)</span>
+<span class="nc" id="L58">    val endTime = System.currentTimeMillis()</span>
+<span class="nc" id="L59">    val timeTakenInSeconds = TimeUnit.MILLISECONDS.toSeconds(endTime - startTime)</span>
+<span class="nc" id="L60">    logger.info(&quot;TIME WRITING A BATCH IN KINESIS &quot; + timeTakenInSeconds)</span>
+  }
+
+<span class="nc" id="L63">}</span>
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

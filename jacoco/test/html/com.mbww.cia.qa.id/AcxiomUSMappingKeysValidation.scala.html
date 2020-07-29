@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AcxiomUSMappingKeysValidation.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.qa.id</a> &gt; <span class="el_source">AcxiomUSMappingKeysValidation.scala</span></div><h1>AcxiomUSMappingKeysValidation.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.qa.id
+
+import com.mbww.cia.common.Module
+import com.mbww.cia.common.Spark.spark
+import com.mbww.cia.qa.utils.ValidationUtils
+import org.json.JSONObject
+import org.slf4j.LoggerFactory
+
+<span class="nc" id="L9">class AcxiomUSMappingKeysValidation  extends Module {</span>
+<span class="nc" id="L10">  val logger = LoggerFactory.getLogger(&quot;CIA Pipeline&quot;)</span>
+<span class="nc" id="L11">  val MBID_STRING = &quot;mbid_value&quot;</span>
+<span class="nc" id="L12">  val HHID_STRING = &quot;hhid_value&quot;</span>
+<span class="nc" id="L13">  val MBID_NUMERIC = &quot;mbid&quot;</span>
+<span class="nc" id="L14">  val HHID_NUMERIC = &quot;hhid&quot;</span>
+
+  def validation(acxiom_path: String,
+                 acxiom_mbid_col: String,
+                 acxiom_hhid_col: String,
+                 unique_id_mbid_path: String,
+                 unique_id_hhid_path: String,
+                 unique_id_mbid_string_col: String,
+                 unique_id_hhid_string_col: String,
+                 output_path: String): Boolean = {
+
+<span class="nc" id="L25">    val acxiom = spark.read.parquet(acxiom_path)</span>
+<span class="nc" id="L26">    val mbid = spark.read.parquet(unique_id_mbid_path)</span>
+<span class="nc" id="L27">    val hhid = spark.read.parquet(unique_id_hhid_path)</span>
+
+<span class="nc" id="L29">    val universal_mbid_numeric_col = mbid.drop(unique_id_mbid_string_col).columns(0)</span>
+<span class="nc" id="L30">    val universal_hhid_numeric_col = hhid.drop(unique_id_hhid_string_col).columns(0)</span>
+
+<span class="nc" id="L32">    val with_mbid = acxiom</span>
+<span class="nc" id="L33">      .join(mbid, acxiom(acxiom_mbid_col) === mbid(unique_id_mbid_string_col))</span>
+<span class="nc" id="L34">      .select(</span>
+<span class="nc" id="L35">        mbid(unique_id_mbid_string_col).as(MBID_STRING),</span>
+<span class="nc" id="L36">        mbid(universal_mbid_numeric_col).as(MBID_NUMERIC))</span>
+
+<span class="nc" id="L38">    val with_hhid = acxiom</span>
+<span class="nc" id="L39">      .join(hhid, acxiom(acxiom_hhid_col) === hhid(unique_id_hhid_string_col))</span>
+<span class="nc" id="L40">      .select(</span>
+<span class="nc" id="L41">        hhid(unique_id_hhid_string_col).as(HHID_STRING),</span>
+<span class="nc" id="L42">        hhid(universal_hhid_numeric_col).as(HHID_NUMERIC),</span>
+<span class="nc" id="L43">        acxiom(acxiom_mbid_col))</span>
+
+<span class="nc" id="L45">    val mapping_keys = with_mbid</span>
+<span class="nc" id="L46">      .join(with_hhid, with_mbid(MBID_STRING) === with_hhid(acxiom_mbid_col))</span>
+<span class="nc" id="L47">      .drop(with_hhid(acxiom_mbid_col))</span>
+
+<span class="nc" id="L49">    val actualMappingKeys=spark.read.load(output_path)</span>
+
+<span class="nc" id="L51">    val expectedCount=mapping_keys.count()</span>
+<span class="nc" id="L52">    val actualCount=actualMappingKeys.count()</span>
+
+    /** validate that if expected mapping keys count matched with actual mapping keys*/
+<span class="nc bnc" id="L55" title="All 2 branches missed.">    if(!(actualCount==expectedCount)) {</span>
+<span class="nc" id="L56">      throw new RuntimeException(</span>
+<span class="nc" id="L57">        s&quot; count of actual mapping_keys  ${actualCount} is not same as  count of expected mapping keys ${expectedCount}  &quot;)</span>
+    }
+<span class="nc" id="L59">    logger.info(  s&quot;count of  actual mapping_keys  ${actualCount} is  same as count of expected mapping keys ${expectedCount} &quot;)</span>
+
+    /** Schema type validation*/
+<span class="nc" id="L62">    ValidationUtils.validateSchema(mapping_keys.schema,actualMappingKeys.schema)</span>
+<span class="nc" id="L63">    val a=actualMappingKeys.select(&quot;mbid_value&quot;).filter(x=&gt;x.mkString.startsWith(&quot;XY&quot;))</span>
+
+    /** Columns count validation*/
+<span class="nc" id="L66">    ValidationUtils.validateColumnsCount(mapping_keys,actualMappingKeys)</span>
+<span class="nc" id="L67">    val expectedDistinctCount=mapping_keys.distinct().count()</span>
+<span class="nc" id="L68">    val actualDistinctCount=actualMappingKeys.distinct().count()</span>
+
+    /** validate that  expected Mapping keys distinct count is equal to count of distinct  actual mapping keys*/
+<span class="nc bnc" id="L71" title="All 2 branches missed.">    if(!(actualDistinctCount==expectedDistinctCount)) {</span>
+<span class="nc" id="L72">      throw new RuntimeException(</span>
+<span class="nc" id="L73">        s&quot;count of distinct actual mapping_keys  ${actualDistinctCount} is not same as  count of distinct expected mapping keys ${expectedDistinctCount}  &quot;)</span>
+    }
+<span class="nc" id="L75">    logger.info(  s&quot;count of distinct actual mapping_keys ${actualDistinctCount} is  same as  count of distinct expected mapping keys ${expectedDistinctCount} &quot;)</span>
+
+    /** validate that MbidValues are started with XY only*/
+<span class="nc" id="L78">    val expectedMbidValue=actualMappingKeys.select(&quot;mbid_value&quot;).filter(x=&gt;x.mkString.startsWith(&quot;XY&quot;)).count()</span>
+<span class="nc" id="L79">    val actualMbidValue=actualMappingKeys.select(&quot;mbid_value&quot;).count()</span>
+<span class="nc bnc" id="L80" title="All 2 branches missed.">    if(!(actualMbidValue==expectedMbidValue)) {</span>
+<span class="nc" id="L81">      throw new RuntimeException(</span>
+<span class="nc" id="L82">        s&quot;count of  actual mbid_value  ${actualMbidValue} is not same as  count of mbid_value started with XY ${expectedMbidValue}  &quot;)</span>
+    }
+<span class="nc" id="L84">    logger.info(  s&quot;count of actual mbid_value ${actualMbidValue} is  same as  count of mbid_value started with XY ${expectedMbidValue} &quot;)</span>
+
+    /** validate that HhidValues are started with XY only*/
+<span class="nc" id="L87">    val expectedHhidValue=actualMappingKeys.select(&quot;hhid_value&quot;).filter(x=&gt;x.mkString.startsWith(&quot;XY&quot;)).count()</span>
+<span class="nc" id="L88">    val actualHhidValue=actualMappingKeys.select(&quot;hhid_value&quot;).count()</span>
+<span class="nc bnc" id="L89" title="All 2 branches missed.">    if(!(actualHhidValue==expectedHhidValue)) {</span>
+<span class="nc" id="L90">      throw new RuntimeException(</span>
+<span class="nc" id="L91">        s&quot;count of  actual hhid_value  ${actualHhidValue} is not same as  count of hhid_value started with XY ${expectedHhidValue}  &quot;)</span>
+    }
+<span class="nc" id="L93">    logger.info(  s&quot;count of actual hhid_value ${actualHhidValue} is  same as  count of hhid_value started with XY ${expectedHhidValue} &quot;)</span>
+
+    /** validate that mbid column data is  numeric only*/
+<span class="nc" id="L96">    val expectedMbidCount=actualMappingKeys.select(&quot;mbid&quot;).count()</span>
+<span class="nc" id="L97">    val actualMbid=actualMappingKeys.filter(row =&gt; row.getAs[String](&quot;mbid&quot;).matches(&quot;&quot;&quot;\d+&quot;&quot;&quot;))</span>
+<span class="nc" id="L98">    val actualMbidCount=actualMbid.count()</span>
+<span class="nc bnc" id="L99" title="All 2 branches missed.">    if(!(actualMbidCount==expectedMbidCount)) {</span>
+<span class="nc" id="L100">      throw new RuntimeException(</span>
+<span class="nc" id="L101">        s&quot;count of actual Numeric Mbid count :  ${actualHhidValue} is not same as  count of expected Mbid ${expectedHhidValue}  &quot;)</span>
+    }
+<span class="nc" id="L103">    logger.info(  s&quot;count of actual Numeric Mbid count ${actualHhidValue} is  same as  count ofexpected Mbid ${expectedHhidValue} &quot;)</span>
+
+    /** validate that Hhid column data is  numeric only*/
+<span class="nc" id="L106">    val expectedHhidCount=actualMappingKeys.select(&quot;hhid&quot;).count()</span>
+<span class="nc" id="L107">    val actualHhid=actualMappingKeys.filter(row =&gt; row.getAs[String](&quot;hhid&quot;).matches(&quot;&quot;&quot;\d+&quot;&quot;&quot;))</span>
+<span class="nc" id="L108">    val actualHhidCount=actualHhid.count()</span>
+<span class="nc bnc" id="L109" title="All 2 branches missed.">    if(!(actualHhidCount==expectedHhidCount)) {</span>
+<span class="nc" id="L110">      throw new RuntimeException(</span>
+<span class="nc" id="L111">        s&quot;count of actual Numeric Hhid count :  ${actualHhidCount} is not same as  count of expected Hhid ${expectedHhidCount} &quot;)</span>
+    }
+<span class="nc" id="L113">    logger.info(  s&quot;count of actual Numeric Hhid count ${actualHhidCount} is  same as  count of expected Hhid ${expectedHhidCount}&quot;)</span>
+
+
+<span class="nc" id="L116">    true</span>
+  }
+
+  override def run(args: JSONObject): Unit = {
+
+<span class="nc" id="L121">    val acxiom_path = args.getString(&quot;acxiom_path&quot;)</span>
+<span class="nc" id="L122">    val acxiom_mbid_col = args.getString(&quot;acxiom_mbid_col&quot;)</span>
+<span class="nc" id="L123">    val acxiom_hhid_col = args.getString(&quot;acxiom_hhid_col&quot;)</span>
+<span class="nc" id="L124">    val unique_id_mbid_path = args.getString(&quot;unique_id_mbid_path&quot;)</span>
+<span class="nc" id="L125">    val unique_id_hhid_path = args.getString(&quot;unique_id_hhid_path&quot;)</span>
+<span class="nc" id="L126">    val unique_id_mbid_string_col = args.getString(&quot;unique_id_mbid_string_col&quot;)</span>
+<span class="nc" id="L127">    val unique_id_hhid_string_col = args.getString(&quot;unique_id_hhid_string_col&quot;)</span>
+<span class="nc" id="L128">    val output_path = args.getString(&quot;output_path&quot;)</span>
+
+<span class="nc" id="L130">    validation(</span>
+<span class="nc" id="L131">      acxiom_path,</span>
+<span class="nc" id="L132">      acxiom_mbid_col,</span>
+<span class="nc" id="L133">      acxiom_hhid_col,</span>
+<span class="nc" id="L134">      unique_id_mbid_path,</span>
+<span class="nc" id="L135">      unique_id_hhid_path,</span>
+<span class="nc" id="L136">      unique_id_mbid_string_col,</span>
+<span class="nc" id="L137">      unique_id_hhid_string_col,</span>
+<span class="nc" id="L138">      output_path)</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

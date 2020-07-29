@@ -1,0 +1,266 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ModeledLookAlikeBitmapValidation.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.qa.bitmap</a> &gt; <span class="el_source">ModeledLookAlikeBitmapValidation.scala</span></div><h1>ModeledLookAlikeBitmapValidation.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.qa.bitmap
+
+import java.io.{ByteArrayOutputStream, InputStream, ObjectOutputStream}
+
+import com.amazonaws.services.s3.AmazonS3
+import com.amazonaws.services.s3.model.GetObjectRequest
+import com.amazonaws.util.IOUtils
+import com.mbww.cia.common.{Module, _}
+import com.mbww.cia.qa.utils.{BitMapUtility, FileData, Setup}
+import org.json.JSONObject
+import org.roaringbitmap.RoaringBitmap
+import org.slf4j.LoggerFactory
+
+import scala.collection.Seq
+
+
+<span class="nc" id="L17">class ModeledLookAlikeBitmapValidation  extends  Module{</span>
+<span class="nc" id="L18">  val logger = LoggerFactory.getLogger(&quot;CIA Pipeline&quot;)</span>
+
+  def generateDistinctPermutations(attributeLists: List[List[String]]): Seq[Seq[String]] = {
+<span class="nc" id="L21">    val distinctPermutations = attributeLists.foldLeft(Seq(Seq.empty[String]))((acc, l) =&gt; l.flatMap(e =&gt; acc.map(_ :+ e)))</span>
+<span class="nc" id="L22">    return distinctPermutations</span>
+  }
+
+
+<span class="nc bnc" id="L26" title="All 2 branches missed.">   def mlkBitmapRequestHandlerForUs(bucket:String,listOfColumnsWithIndexes: Seq[Seq[String]],awsS3Client: AmazonS3, bitmapFilePath :String ,  bitmapType:String): Boolean = {</span>
+<span class="nc" id="L27">     var flag=false</span>
+
+<span class="nc" id="L29">     try {</span>
+<span class="nc bnc" id="L30" title="All 2 branches missed.">       listOfColumnsWithIndexes.foreach(list =&gt; {</span>
+
+<span class="nc" id="L32">       var outputpathOfMergedBitmap=list(0) + &quot;_&quot; + list(1) + &quot;_&quot; + list(2)</span>
+<span class="nc" id="L33">         println(&quot;outputpathOfMergedBitmap&quot; + outputpathOfMergedBitmap)</span>
+
+<span class="nc" id="L35">         logger.info(&quot;Attributes under processing =&gt; &quot; + list)</span>
+<span class="nc" id="L36">         var count = 0</span>
+<span class="nc" id="L37">         var mergedBitmap = new RoaringBitmap()</span>
+<span class="nc bnc" id="L38" title="All 2 branches missed.">         list.foreach(attribute =&gt; {</span>
+<span class="nc" id="L39">           logger.info(&quot;Before Merging Length of combined bitmap ===&gt;&quot; + mergedBitmap.toArray.length.toLong)</span>
+<span class="nc" id="L40">           logger.info(&quot;Item from list under processing =&gt; &quot; + attribute)</span>
+<span class="nc" id="L41">           val bitmap: RoaringBitmap = fetchBitmap(bucket,attribute,awsS3Client,bitmapFilePath,bitmapType)</span>
+<span class="nc bnc" id="L42" title="All 2 branches missed.">           if (bitmap.getCardinality == 0) {</span>
+<span class="nc" id="L43">             return false</span>
+           }
+<span class="nc" id="L45">           logger.info(&quot;Bitmap Length =&gt; &quot; + bitmap.toArray.length.toLong)</span>
+<span class="nc bnc" id="L46" title="All 2 branches missed.">           if (count == 0) {</span>
+<span class="nc" id="L47">             mergedBitmap = bitmap</span>
+<span class="nc" id="L48">             logger.info(&quot;Merged in IF Block =&gt; &quot; + mergedBitmap.toArray.length.toLong)</span>
+           } else {
+<span class="nc" id="L50">             mergedBitmap.and(bitmap)</span>
+<span class="nc" id="L51">             logger.info(&quot;Merged in ELSE Block =&gt;  &quot; + mergedBitmap.toArray.length.toLong)</span>
+           }
+<span class="nc" id="L53">           count += 1</span>
+
+         })
+<span class="nc" id="L56">         val lenthofMergedBitmap=mergedBitmap.toArray().length.toString()</span>
+<span class="nc" id="L57">         logger.info(&quot;length of  merged bitmap  &quot; + lenthofMergedBitmap)</span>
+
+<span class="nc" id="L59">         val mlkBitmap=bitmapType + &quot;/MLK&quot;</span>
+<span class="nc" id="L60">         val actualMlkBitmap: RoaringBitmap =  fetchBitmap(bucket,outputpathOfMergedBitmap,awsS3Client,bitmapFilePath,mlkBitmap)</span>
+
+<span class="nc" id="L62">         var actualMlkBitmaplength=actualMlkBitmap.toArray().length.toString()</span>
+<span class="nc" id="L63">         logger.info(&quot;length of  mlk bitmap is: &quot; + actualMlkBitmaplength)</span>
+<span class="nc bnc" id="L64" title="All 2 branches missed.">         if(actualMlkBitmaplength.equals(lenthofMergedBitmap))</span>
+<span class="nc" id="L65">           flag=true</span>
+         else
+         {
+<span class="nc" id="L68">           logger.info(&quot;length of Actual MLK and merged Bitmap did not matched&quot;)</span>
+<span class="nc" id="L69">           return false</span>
+         }
+       }
+       )
+<span class="nc" id="L73">       return flag</span>
+     }
+     catch {
+       case ex: Exception =&gt; logger.info(&quot;Error before merging the bitmaps, problem in extracting the parameters required!!&quot;)
+<span class="nc" id="L77">         return flag</span>
+     }
+  }
+
+
+<span class="nc bnc" id="L82" title="All 2 branches missed.">  def mlkBitmapRequestHandler(bucket:String,listOfColumnsWithIndexes: Seq[Seq[String]], awsS3Client: AmazonS3, bitmapFilePath :String ,  bitmapType:String): Boolean = {</span>
+<span class="nc" id="L83">    var flag=false</span>
+<span class="nc" id="L84">    try {</span>
+<span class="nc bnc" id="L85" title="All 2 branches missed.">      listOfColumnsWithIndexes.foreach(list =&gt; {</span>
+<span class="nc" id="L86">        logger.info(&quot;Attributes under processing =&gt; &quot; + list)</span>
+<span class="nc" id="L87">        var count = 0</span>
+<span class="nc" id="L88">        var mergedBitmap = new RoaringBitmap()</span>
+<span class="nc bnc" id="L89" title="All 2 branches missed.">        list.foreach(attribute =&gt; {</span>
+<span class="nc" id="L90">          logger.info(&quot;Before Merging Length of combined bitmap ===&gt;&quot; + mergedBitmap.toArray.length.toLong)</span>
+<span class="nc" id="L91">          logger.info(&quot;Item from list under processing =&gt; &quot; + attribute)</span>
+<span class="nc" id="L92">          val bitmap: RoaringBitmap = fetchBitmap(bucket, attribute,awsS3Client,bitmapFilePath,bitmapType)</span>
+<span class="nc bnc" id="L93" title="All 2 branches missed.">          if (bitmap.getCardinality == 0) {</span>
+<span class="nc" id="L94">            return false</span>
+          }
+<span class="nc" id="L96">          logger.info(&quot;Bitmap Length =&gt; &quot; + bitmap.toArray.length.toLong)</span>
+<span class="nc bnc" id="L97" title="All 2 branches missed.">          if (count == 0) {</span>
+<span class="nc" id="L98">            mergedBitmap = bitmap</span>
+<span class="nc" id="L99">            logger.info(&quot;Merged in IF Block =&gt; &quot; + mergedBitmap.toArray.length.toLong)</span>
+          } else {
+<span class="nc" id="L101">            mergedBitmap.and(bitmap)</span>
+<span class="nc" id="L102">            logger.info(&quot;Merged in ELSE Block =&gt;  &quot; + mergedBitmap.toArray.length.toLong)</span>
+          }
+<span class="nc" id="L104">          count += 1</span>
+
+        })
+<span class="nc" id="L107">        val lenthofMergedBitmap=mergedBitmap.toArray().length.toString()</span>
+<span class="nc" id="L108">        var outputpathOfMergedBitmap=list(0) + &quot;_&quot; + list(1) + &quot;_&quot; + list(2)</span>
+<span class="nc" id="L109">        val mlkBitmap=bitmapType + &quot;/MLK&quot;</span>
+<span class="nc" id="L110">        val actualMlkBitmap: RoaringBitmap =  fetchBitmap(bucket,outputpathOfMergedBitmap,awsS3Client,bitmapFilePath,mlkBitmap)</span>
+<span class="nc" id="L111">        var actualMlkBitmaplength=actualMlkBitmap.toArray().length.toString()</span>
+<span class="nc" id="L112">        logger.info(&quot;length of  mlk bitmap is: &quot; + actualMlkBitmaplength)</span>
+<span class="nc bnc" id="L113" title="All 2 branches missed.">        if(actualMlkBitmaplength.equals(lenthofMergedBitmap))</span>
+<span class="nc" id="L114">          flag=true</span>
+        else
+        {
+<span class="nc" id="L117">          logger.info(&quot;length of Actual MLK and merged Bitmap did not matched&quot;)</span>
+<span class="nc" id="L118">          return false</span>
+        }
+      })
+<span class="nc" id="L121">      return flag</span>
+    }
+    catch {
+      case ex: Exception =&gt; logger.info(&quot;Error before merging the bitmaps, problem in extracting the parameters required!!&quot;)
+<span class="nc" id="L125">        return flag</span>
+    }
+  }
+
+  def fetchBitmap(bucketName:String, attribute: String ,awsS3Client: AmazonS3 ,bitmapPath: String, bitmapType: String): RoaringBitmap = {
+<span class="nc" id="L130">    val attributePath=bitmapPath.drop(1) + bitmapType + &quot;/attribute_id=&quot; + attribute + &quot;/&quot;</span>
+<span class="nc" id="L131">    var mergedBitmap: RoaringBitmap = new RoaringBitmap</span>
+<span class="nc" id="L132">    try {</span>
+<span class="nc" id="L133">      val bitmapPath = BitMapUtility.getFilePathfromS3V2(bucketName, attributePath, awsS3Client)</span>
+
+<span class="nc" id="L135">      bitmapPath.foreach { x =&gt; {</span>
+<span class="nc" id="L136">        var objec = awsS3Client.getObject(new GetObjectRequest(bucketName, x))</span>
+<span class="nc" id="L137">        var objectData: InputStream = objec.getObjectContent</span>
+<span class="nc" id="L138">        var bos = new ByteArrayOutputStream()</span>
+<span class="nc" id="L139">        var oos = new ObjectOutputStream(bos)</span>
+<span class="nc" id="L140">        var arrayByte = IOUtils.toByteArray(objectData)</span>
+<span class="nc" id="L141">        mergedBitmap = BitMapUtility.deserializeBitmap(arrayByte)</span>
+      }
+      }
+<span class="nc" id="L144">      return mergedBitmap</span>
+    }
+    catch {
+      case ex: Exception =&gt; println(&quot;Bitmap Not Found!!&quot;)
+<span class="nc" id="L148">        return null</span>
+    }
+  }
+
+  def fetchBitmapMLK( bucket:String,attribute: String ,awsS3Client: AmazonS3 ,bitmapPath: String, bitmapMlkType: String): RoaringBitmap = {
+
+<span class="nc" id="L154">    val attributePath =bitmapPath.drop(1) + bitmapMlkType + &quot;/&quot; + attribute</span>
+
+<span class="nc" id="L156">    logger.info(&quot;attributePath &quot; + attributePath)</span>
+<span class="nc" id="L157">    var mergedBitmap: RoaringBitmap = new RoaringBitmap</span>
+<span class="nc" id="L158">    try {</span>
+<span class="nc" id="L159">      var bitmapPath = BitMapUtility.getFilePathfromS3V2ForMLK(bucket, attributePath, awsS3Client)</span>
+<span class="nc" id="L160">      logger.info(&quot;bitmapPath for MLK bitmap&quot; + bitmapPath)</span>
+<span class="nc" id="L161">      bitmapPath.foreach { x =&gt; {</span>
+<span class="nc" id="L162">        var objec = awsS3Client.getObject(new GetObjectRequest(bucket, x))</span>
+<span class="nc" id="L163">        var objectData: InputStream = objec.getObjectContent</span>
+<span class="nc" id="L164">        var metaData = objec.getObjectMetadata</span>
+<span class="nc" id="L165">        var bos = new ByteArrayOutputStream()</span>
+<span class="nc" id="L166">        var oos = new ObjectOutputStream(bos)</span>
+<span class="nc" id="L167">        var arrayByte = IOUtils.toByteArray(objectData)</span>
+<span class="nc" id="L168">        mergedBitmap = BitMapUtility.deserializeBitmap(arrayByte)</span>
+      }
+      }
+<span class="nc" id="L171">      return mergedBitmap</span>
+    }
+    catch {
+      case ex: Exception =&gt; println(&quot;MLK Bitmap Not Found!!&quot;)
+<span class="nc" id="L175">        return null</span>
+    }
+  }
+<span class="nc" id="L178">  def mlkBitmapValidation(awsS3Client: AmazonS3,setup:Setup, dataSetFileData: Any,marketName:String,bucket:String,bitMapType:String,listofMlkAttributes:Seq[Seq[String]],delimiter: String = &quot;\t&quot;):Boolean =</span>
+<span class="nc" id="L179">  {</span>
+<span class="nc" id="L180">    val bitmapFilePath = setup.bitmapFilePath(dataSetFileData.toString.split(delimiter)(4),dataSetFileData.toString.split(delimiter)(8),dataSetFileData.toString.split(delimiter)(10).drop(1))</span>
+<span class="nc bnc" id="L181" title="All 4 branches missed.">   if(marketName.equals(&quot;UK&quot;) || marketName.equals(&quot;AU&quot;))</span>
+    {
+
+<span class="nc" id="L184">      mlkBitmapRequestHandler(bucket,listofMlkAttributes,awsS3Client, bitmapFilePath,bitMapType)</span>
+    }
+    else
+    {
+<span class="nc" id="L188">       mlkBitmapRequestHandlerForUs(bucket,listofMlkAttributes,awsS3Client, bitmapFilePath,bitMapType)</span>
+    }
+
+  }
+<span class="nc" id="L192">  def mlkFoldersCountValidation(marketName:String,awsS3Client: AmazonS3,setup:Setup,dataSetFileData: Any,bucketName:String,bitMapType:String,listofMlkAttributes:Seq[Seq[String]],delimiter: String = &quot;\t&quot;): Boolean =</span>
+  {
+<span class="nc" id="L194">    var fileLists:List[String]=null;</span>
+<span class="nc" id="L195">    val expectedMLKAttributeslist=listofMlkAttributes.iterator</span>
+<span class="nc" id="L196">    val expectedMLKCount=expectedMLKAttributeslist.size</span>
+<span class="nc" id="L197">    logger.info(&quot;expected MLK  Bitmap folders Count&quot; + expectedMLKCount)</span>
+<span class="nc" id="L198">    val mlkPath=dataSetFileData.toString.split(delimiter)(4).drop(1) + dataSetFileData.toString.split(delimiter)(8) + dataSetFileData.toString.split(delimiter)(10) + bitMapType + &quot;/MLK/&quot;</span>
+<span class="nc bnc" id="L199" title="All 4 branches missed.">  if(marketName.equals(&quot;UK&quot;)|| marketName.equals(&quot;AU&quot;) )</span>
+   {
+<span class="nc" id="L201">    fileLists = BitMapUtility.getFilePathfromS3V2ForMLK(setup.bucketName, mlkPath, awsS3Client)</span>
+   }
+    else
+<span class="nc" id="L204">     fileLists = BitMapUtility.getFilePathfromS3V2(setup.bucketName, mlkPath, awsS3Client)</span>
+
+<span class="nc" id="L206">    val actualMLKCount=fileLists.size</span>
+<span class="nc" id="L207">    logger.info(&quot; actual MLK Bitmap folders Count&quot; + actualMLKCount)</span>
+
+<span class="nc bnc" id="L209" title="All 2 branches missed.">    if(expectedMLKCount==actualMLKCount)</span>
+      {
+<span class="nc" id="L211">        return  true</span>
+      }
+    else
+<span class="nc" id="L214">      logger.info(&quot;length of Actual MLK  folders count and expected MLK Bitmap folders count did not matched&quot;)</span>
+<span class="nc" id="L215">      return false</span>
+
+  }
+
+  def validation(marketName: String,
+                 bucket: String,
+                 bitMapType: Seq[JSONObject],
+                 attributes: String,
+                 dataProviderName:String,
+                 matchingPartnerName:String,
+<span class="nc" id="L225">               thread_count: Int = 1): Unit = {</span>
+<span class="nc" id="L226">    var setup = new Setup(marketName, bucket, dataProviderName, matchingPartnerName)</span>
+<span class="nc" id="L227">    var awsS3Client = setup.awsS3Client</span>
+<span class="nc" id="L228">    val pColumns = FileData.dataProviderData(awsS3Client, setup).par</span>
+<span class="nc" id="L229">    val listofMlkAttributes= generateDistinctPermutations(attributes.split(&quot;;&quot;).map(line =&gt; line.split(&quot;,&quot;).toList).toList)</span>
+<span class="nc" id="L230">    val pType=bitMapType.par</span>
+<span class="nc bnc" id="L231" title="All 2 branches missed.">    pType.foreach(bitmaptype =&gt; {</span>
+<span class="nc" id="L232">      var bitMapType = bitmaptype.get(&quot;bitMapType&quot;).toString</span>
+<span class="nc" id="L233">      logger.info(&quot;bitMapType&quot; + bitMapType)</span>
+<span class="nc bnc" id="L234" title="All 2 branches missed.">      pColumns.foreach(dataSetFileData =&gt;</span>
+<span class="nc bnc" id="L235" title="All 2 branches missed.">        if(!(mlkBitmapValidation(awsS3Client,setup,dataSetFileData(1),marketName,bucket,bitMapType,listofMlkAttributes))){</span>
+<span class="nc" id="L236">          throw new RuntimeException(&quot;-----------------mlkBitmapValidation failed ---------------------&quot;)</span>
+        })
+<span class="nc bnc" id="L238" title="All 4 branches missed.">      pColumns.foreach(dataSetFileData =&gt;if(!(mlkFoldersCountValidation(marketName,awsS3Client,setup,dataSetFileData(1),bucket,bitMapType,listofMlkAttributes))){</span>
+<span class="nc" id="L239">        throw new RuntimeException(&quot;-----------------mlkFoldersCountValidation failed ---------------------&quot;)</span>
+      })
+
+    })
+  }
+
+  override def run(args: JSONObject): Unit = {
+
+<span class="nc" id="L247">    val marketName = args.getString(&quot;marketName&quot;)</span>
+<span class="nc" id="L248">    val bucket = args.getString(&quot;bucket&quot;)</span>
+<span class="nc" id="L249">    val bitMapType = args.getSeq[JSONObject](&quot;bitMap_Type&quot;)</span>
+<span class="nc" id="L250">    val attributes = args.getString(&quot;attributes&quot;)</span>
+<span class="nc" id="L251">    val dataProviderName = args.getString(&quot;dataProviderName&quot;)</span>
+<span class="nc" id="L252">    val matchingPartnerName = args.getString(&quot;matchingPartnerName&quot;)</span>
+<span class="nc" id="L253">    val thread_count = args.getOrElse[Int](&quot;thread_count&quot;, 1)</span>
+
+<span class="nc" id="L255">    validation(</span>
+<span class="nc" id="L256">      marketName,</span>
+<span class="nc" id="L257">      bucket,</span>
+<span class="nc" id="L258">      bitMapType,</span>
+<span class="nc" id="L259">      attributes,</span>
+<span class="nc" id="L260">      dataProviderName,</span>
+<span class="nc" id="L261">      matchingPartnerName,</span>
+<span class="nc" id="L262">      thread_count)</span>
+  }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

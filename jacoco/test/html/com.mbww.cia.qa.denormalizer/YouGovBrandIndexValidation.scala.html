@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>YouGovBrandIndexValidation.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.qa.denormalizer</a> &gt; <span class="el_source">YouGovBrandIndexValidation.scala</span></div><h1>YouGovBrandIndexValidation.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.qa.denormalizer
+
+import com.mbww.cia.common.Module
+import com.mbww.cia.qa.utils.UtilsFunction
+import org.json.JSONObject
+import org.slf4j.LoggerFactory
+import com.mbww.cia.common.Spark._
+import com.mbww.cia.dev.denormalizer.YouGovBrandIndex
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.types.IntegerType
+
+
+<span class="nc" id="L13">class YouGovBrandIndexValidation extends  Module{</span>
+
+<span class="nc" id="L15">  val log = LoggerFactory.getLogger(&quot;CIA Pipeline&quot;)</span>
+
+  def validation(selfResponsePath: String,
+                 brandResponsePath: String,
+                 outputPath: String): Unit = {
+<span class="nc" id="L20">    val selfResponse = spark.read.parquet(selfResponsePath)</span>
+<span class="nc" id="L21">    val brandResponse = spark.read.parquet(brandResponsePath)</span>
+
+<span class="nc" id="L23">    val brandResponseFiltered = brandResponse.filter(</span>
+<span class="nc" id="L24">      not((col(YouGovBrandIndex.questionId) === &quot;current_own&quot; or col(YouGovBrandIndex.questionId) === &quot;former_own&quot;) and</span>
+<span class="nc" id="L25">        col(YouGovBrandIndex.responseCode) =!= 1)</span>
+<span class="nc" id="L26">    ).select(</span>
+<span class="nc" id="L27">      YouGovBrandIndex.responseDate,</span>
+<span class="nc" id="L28">      YouGovBrandIndex.categoryId,</span>
+<span class="nc" id="L29">      YouGovBrandIndex.brandId,</span>
+<span class="nc" id="L30">      YouGovBrandIndex.questionId,</span>
+<span class="nc" id="L31">      YouGovBrandIndex.responseCode,</span>
+<span class="nc" id="L32">      YouGovBrandIndex.yougovId,</span>
+<span class="nc" id="L33">      YouGovBrandIndex.regionId,</span>
+<span class="nc" id="L34">      YouGovBrandIndex.respondentHk,</span>
+<span class="nc" id="L35">      YouGovBrandIndex.responseHk</span>
+    )
+<span class="nc" id="L37">    val selfResponseFiltered = selfResponse.filter(col(&quot;question_id&quot;) === &quot;likelybuy&quot;)</span>
+<span class="nc" id="L38">      .select(</span>
+<span class="nc" id="L39">        col(YouGovBrandIndex.responseDate),</span>
+<span class="nc" id="L40">        col(YouGovBrandIndex.categoryId),</span>
+<span class="nc" id="L41">        col(YouGovBrandIndex.responseCode).as(YouGovBrandIndex.brandId).cast(IntegerType),</span>
+<span class="nc" id="L42">        col(YouGovBrandIndex.questionId),</span>
+<span class="nc" id="L43">        lit(1).as(YouGovBrandIndex.responseCode),</span>
+<span class="nc" id="L44">        col(YouGovBrandIndex.yougovId),</span>
+<span class="nc" id="L45">        col(YouGovBrandIndex.regionId),</span>
+<span class="nc" id="L46">        col(YouGovBrandIndex.respondentHk),</span>
+<span class="nc" id="L47">        col(YouGovBrandIndex.responseHk)</span>
+      )
+
+<span class="nc" id="L50">    val denormalized = brandResponseFiltered.union(selfResponseFiltered)</span>
+<span class="nc" id="L51">      .withColumn(YouGovBrandIndex.year, year(col(YouGovBrandIndex.responseDate)))</span>
+<span class="nc" id="L52">      .withColumn(YouGovBrandIndex.month, dayMonthPlus0Udf(month(col(YouGovBrandIndex.responseDate))))</span>
+<span class="nc" id="L53">      .withColumn(YouGovBrandIndex.day, dayMonthPlus0Udf(dayofmonth(col(YouGovBrandIndex.responseDate))))</span>
+<span class="nc" id="L54">      .withColumn(&quot;AttributeName&quot;, concat_ws(&quot;-&quot;, col(YouGovBrandIndex.categoryId), col(YouGovBrandIndex.brandId), col(YouGovBrandIndex.questionId),col(YouGovBrandIndex.responseCode)))</span>
+
+<span class="nc" id="L56">    val expectedCount = denormalized.count()</span>
+<span class="nc" id="L57">    val actualCount = spark.read.load(outputPath)</span>
+
+<span class="nc" id="L59">    val sumCount = brandResponseFiltered.count() + selfResponseFiltered.count()</span>
+
+<span class="nc bnc" id="L61" title="All 12 branches missed.">    if(!(actualCount==expectedCount) &amp;&amp; !(sumCount==actualCount))</span>
+    {
+<span class="nc" id="L63">      throw new RuntimeException(</span>
+<span class="nc" id="L64">        s&quot; YouGov =&gt; Count of actual custom-attribute-store:  ${actualCount} is not matching with expected custom-attribute-store count ${expectedCount} &quot;)</span>
+
+    }
+<span class="nc" id="L67">    log.info(s&quot; YouGov =&gt; Count of actual custom-attribute-store:  ${actualCount} is matching with expected custom-attribute-store count ${expectedCount} &quot;)</span>
+
+  }
+
+<span class="nc" id="L71">  val dayMonthPlus0Udf = udf(dayMonthPlus0)</span>
+<span class="nc" id="L72">  def dayMonthPlus0:  (String =&gt; String) = (i: String) =&gt; {</span>
+<span class="nc bnc" id="L73" title="All 2 branches missed.">    if (i.toInt &lt; 10) &quot;0&quot;.concat(i.toString) else i.toString</span>
+  }
+
+  override def run(args: JSONObject): Unit = {
+<span class="nc" id="L77">    val outputPath = args.getString(&quot;output_path&quot;)</span>
+<span class="nc" id="L78">    val selfResponsePath = args.getString(&quot;self_response_path&quot;)</span>
+<span class="nc" id="L79">    val brandResponsePath = args.getString(&quot;brand_response_path&quot;)</span>
+
+<span class="nc" id="L81">    validation(</span>
+<span class="nc" id="L82">      selfResponsePath,</span>
+<span class="nc" id="L83">      brandResponsePath,</span>
+<span class="nc" id="L84">      outputPath)</span>
+  }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

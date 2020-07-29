@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Main.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia</a> &gt; <span class="el_source">Main.scala</span></div><h1>Main.scala</h1><pre class="source lang-java linenums">package com.mbww.cia
+
+import com.mbww.cia.common.{getStringContent, _}
+import com.mbww.cia.core.Runner
+import com.mbww.cia.core.logging.CIALogger.MessageAttribute
+import com.mbww.cia.core.logging.{LocalLogger, SNSLogger}
+import com.mbww.cia.core.pipeline.Pipeline
+import org.apache.spark.SparkConf
+import org.apache.spark.deploy.SparkHadoopUtil
+import org.json.JSONObject
+
+object Main {
+
+<span class="nc" id="L14">  def main(args: Array[String]): Unit = {</span>
+
+<span class="nc" id="L16">    val snsLog = SNSLogger.getBuilder().forName(&quot;Main&quot;).defaultLogger()</span>
+<span class="nc" id="L17">    val localLog = LocalLogger.getBuilder().forName(&quot;Main&quot;).build()</span>
+<span class="nc" id="L18">    val pipelineId = args(1)</span>
+
+<span class="nc" id="L20">    try {</span>
+<span class="nc" id="L21">      val JSONInputPath = args(0)</span>
+<span class="nc" id="L22">      val sparkConf = new SparkConf()</span>
+<span class="nc" id="L23">      val hadoopConf = SparkHadoopUtil.get.newConfiguration(sparkConf)</span>
+<span class="nc" id="L24">      val content = getStringContent(JSONInputPath)(hadoopConf)</span>
+<span class="nc" id="L25">      val pipelineObject = new JSONObject(content)</span>
+<span class="nc" id="L26">      val pipelineName = pipelineObject.getOrElse[String](Pipeline.KEY_NAME, Constants.CIA_PIPELINE)</span>
+<span class="nc" id="L27">      Spark.init(pipelineName)</span>
+<span class="nc" id="L28">      Runner.run(pipelineObject)</span>
+    } catch {
+      case ex: Throwable =&gt;
+<span class="nc" id="L31">        val msg = &quot;Startup Failed&quot;</span>
+<span class="nc" id="L32">        val pipeline = MessageAttribute(&quot;pipeline_id&quot;, pipelineId)</span>
+<span class="nc" id="L33">        val cause = MessageAttribute(&quot;cause&quot;, ex.toString)</span>
+<span class="nc" id="L34">        val stackTrace = MessageAttribute(&quot;stack_trace&quot;, ex.getStackTrace.mkString(&quot;&quot;, &quot;\n&quot;, &quot;\n&quot;))</span>
+<span class="nc" id="L35">        snsLog.error(msg, pipeline, cause, stackTrace)</span>
+<span class="nc" id="L36">        localLog.error(msg, pipeline, cause, stackTrace)</span>
+    }
+  }
+<span class="nc" id="L39">}</span>
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

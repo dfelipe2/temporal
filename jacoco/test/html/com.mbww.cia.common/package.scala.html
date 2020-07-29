@@ -1,0 +1,285 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>package.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.common</a> &gt; <span class="el_source">package.scala</span></div><h1>package.scala</h1><pre class="source lang-java linenums">package com.mbww.cia
+
+import java.io.{BufferedReader, InputStreamReader}
+import java.net.URI
+
+import com.github.tototoshi.csv.{CSVFormat, CSVReader, CSVWriter, TSVFormat}
+import com.mbww.cia.common.bitmap.BitmapFileFormat
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.{FileSystem, Path}
+import org.apache.spark.sql.expressions.Window
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.{Column, DataFrame, SaveMode, SparkSession}
+import org.json.{JSONException, JSONObject}
+
+import scala.collection.Seq
+import scala.collection.mutable.ListBuffer
+import scala.collection.parallel.ForkJoinTaskSupport
+
+package object common {
+
+  object Constants {
+    // Columns
+<span class="fc" id="L23">    val MERGE_KEY = &quot;_merge_key_&quot;</span>
+<span class="pc" id="L24">    val ATTRIBUTE_ID = &quot;_attribute_id_&quot;</span>
+<span class="pc" id="L25">    val DENORMALIZED_ID = &quot;_denormalized_id_&quot;</span>
+<span class="fc" id="L26">    val BITMAP_COUNT = &quot;_bitmap_count_&quot;</span>
+<span class="fc" id="L27">    val BITMAP_PATH = &quot;_bitmap_path_&quot;</span>
+<span class="fc" id="L28">    val BITMAP_TYPE = &quot;_bitmap_type_&quot;</span>
+<span class="pc" id="L29">    val MODELED_LOOK_ALIKE = &quot;_modeled_look_alike_&quot;</span>
+<span class="fc" id="L30">    val CUSTOM_AGE_RANGE = &quot;_custom_age_range_&quot;</span>
+
+<span class="fc" id="L32">    val CSV_FORMAT_SPEC = &quot;csv&quot;</span>
+<span class="fc" id="L33">    val PARQUET_FORMAT_SPEC = &quot;parquet&quot;</span>
+<span class="pc" id="L34">    val CIA_PIPELINE = &quot;CIA Pipeline&quot;</span>
+  }
+
+<span class="pc" id="L37">  class MyTSVFormat extends TSVFormat</span>
+
+<span class="fc" id="L39">  implicit class DataFrameImplicits(df: DataFrame) extends Serializable {</span>
+
+    def removeDuplicates(targetColumns: Seq[Column], lexicographicalOrder: Seq[Column]): DataFrame = {
+
+<span class="nc" id="L43">      val rowNumber = &quot;___rn___&quot;</span>
+<span class="nc" id="L44">      val winSpec = Window.partitionBy(targetColumns: _*).orderBy(lexicographicalOrder: _*)</span>
+<span class="nc" id="L45">      df.withColumn(rowNumber, row_number().over(winSpec))</span>
+<span class="nc" id="L46">        .filter(col(rowNumber) === 1)</span>
+<span class="nc" id="L47">        .drop(rowNumber)</span>
+    }
+
+    def removeDuplicates(columns: Column*): DataFrame = {
+
+<span class="fc bfc" id="L52" title="All 2 branches covered.">      val otherColumns = df.columns.filter(c =&gt; !columns.contains(col(c)))</span>
+<span class="fc" id="L53">      df.groupBy(columns: _*)</span>
+<span class="fc" id="L54">        .agg(lit(1).as(&quot;__tmp__&quot;), otherColumns.map(c =&gt; first(c).as(c)):_ *)</span>
+<span class="fc" id="L55">        .drop(&quot;__tmp__&quot;)</span>
+    }
+
+    def oneToOne(leftColumns: Seq[Column], rightColumns: Seq[Column], lexicographicalOrder: Seq[Column]):
+    DataFrame = {
+<span class="nc" id="L60">      df.removeDuplicates(leftColumns, lexicographicalOrder)</span>
+<span class="nc" id="L61">        .removeDuplicates(rightColumns, lexicographicalOrder)</span>
+    }
+
+    def uniques(columns: Column*): DataFrame = {
+
+<span class="fc" id="L66">      df.groupBy(columns: _*)</span>
+<span class="fc" id="L67">        .agg(lit(1))</span>
+<span class="fc" id="L68">        .select(columns: _*)</span>
+    }
+
+    def batchJoin(other: DataFrame,
+                  joinExpression: Column,
+                  joinType: String,
+                  batchSize: Int,
+                  batchColumns: Seq[Column],
+<span class="nc" id="L76">                  callback: DataFrame =&gt; Unit): Unit = {</span>
+
+<span class="nc" id="L78">      val partitions = df.removeDuplicates(batchColumns: _*).collect()</span>
+<span class="nc" id="L79">      var batchIdx = 0</span>
+<span class="nc" id="L80">      val targetRow = array(batchColumns.map(c =&gt; c): _*)</span>
+
+<span class="nc bnc" id="L82" title="All 2 branches missed.">      while (batchIdx &lt; partitions.length) {</span>
+<span class="nc" id="L83">        val batchIDs = for (i &lt;- batchIdx until math.min(batchIdx + batchSize, partitions.length))</span>
+<span class="nc bnc" id="L84" title="All 2 branches missed.">          yield batchColumns.map(c =&gt; partitions(i).getAs[String](c.toString))</span>
+
+<span class="nc" id="L86">        val batchSet = collection.immutable.HashSet(batchIDs: _*)</span>
+<span class="nc" id="L87">        val isProcessed = udf((cols: Seq[String]) =&gt; batchSet.contains(cols))</span>
+<span class="nc" id="L88">        val batchDF = df.filter(isProcessed(targetRow))</span>
+<span class="nc" id="L89">        val batchJoin = batchDF.join(other, joinExpression, joinType)</span>
+<span class="nc" id="L90">        callback(batchJoin)</span>
+<span class="nc" id="L91">        batchIdx += batchSize</span>
+      }
+    }
+  }
+
+<span class="fc" id="L96">  implicit class JSONObjectImplicits(json: JSONObject) extends Serializable {</span>
+
+    def getOrElse[T](key: String, default: T) : T = {
+<span class="fc" id="L99">      try {</span>
+<span class="fc" id="L100">        json.get(key).asInstanceOf[T]</span>
+      } catch {
+<span class="fc" id="L102">        case _ : JSONException =&gt; default</span>
+      }
+    }
+
+<span class="fc" id="L106">    def getOrElseSeq[T](key: String, default: Seq[T] = Seq.empty[T]) : Seq[T] = {</span>
+<span class="fc" id="L107">      try {</span>
+<span class="fc" id="L108">        val arr = json.getJSONArray(key)</span>
+<span class="fc" id="L109">        (0 until arr.length())</span>
+<span class="fc" id="L110">          .map(i =&gt; arr.get(i).asInstanceOf[T])</span>
+      } catch {
+<span class="fc" id="L112">        case _ : JSONException =&gt; default</span>
+      }
+    }
+
+    def getSeq[T](key: String) : Seq[T] = {
+<span class="fc" id="L117">      val arr = json.getJSONArray(key)</span>
+<span class="fc" id="L118">      (0 until arr.length())</span>
+<span class="fc" id="L119">        .map(i =&gt; arr.get(i).asInstanceOf[T])</span>
+    }
+  }
+
+  def getCIAConfig(key: String): String = {
+
+<span class="pc" id="L125">    Option(System.getenv(key)) match {</span>
+<span class="pc bpc" id="L126" title="1 of 2 branches missed.">      case Some(value) =&gt; value</span>
+<span class="pc bpc" id="L127" title="1 of 2 branches missed.">      case None =&gt; System.getProperty(key)</span>
+    }
+  }
+
+<span class="fc" id="L131">  def getFileSystem(path: String)(implicit hc: Configuration = Spark.spark.sparkContext.hadoopConfiguration): FileSystem = {</span>
+<span class="fc" id="L132">    FileSystem.get(new URI(path), hc)</span>
+  }
+
+<span class="fc" id="L135">  def listAllPaths(path: String, filesOnly: Boolean = true)(implicit hc: Configuration = Spark.spark.sparkContext.hadoopConfiguration) = {</span>
+
+<span class="fc" id="L137">    val fs = getFileSystem(path)(hc)</span>
+<span class="fc" id="L138">    val list = ListBuffer.empty[Path]</span>
+<span class="fc" id="L139">    val it = fs.listFiles(new Path(path), true)</span>
+<span class="fc bfc" id="L140" title="All 2 branches covered.">    while (it.hasNext) {</span>
+<span class="fc" id="L141">      val p = it.next</span>
+<span class="pc bpc" id="L142" title="3 of 6 branches missed.">      if (!filesOnly || (filesOnly &amp;&amp; p.isFile))</span>
+<span class="fc" id="L143">        list += p.getPath</span>
+    }
+<span class="fc" id="L145">    list</span>
+  }
+
+<span class="fc" id="L148">  def copyFile(src: String, dst: String)(implicit hc: Configuration = Spark.spark.sparkContext.hadoopConfiguration) = {</span>
+
+<span class="fc" id="L150">    val in = getFileSystem(src)(hc).open(new Path(src))</span>
+<span class="fc" id="L151">    val ou = getFileSystem(dst)(hc).create(new Path(dst))</span>
+<span class="fc" id="L152">    val buff = Array.ofDim[Byte](1024 * 1024)</span>
+<span class="fc" id="L153">    var len = in.read(buff)</span>
+
+<span class="fc bfc" id="L155" title="All 2 branches covered.">    while (len != -1) {</span>
+<span class="fc" id="L156">      ou.write(buff, 0, len)</span>
+<span class="fc" id="L157">      len = in.read(buff)</span>
+    }
+<span class="fc" id="L159">    ou.flush()</span>
+<span class="fc" id="L160">    ou.close()</span>
+<span class="fc" id="L161">    in.close()</span>
+  }
+
+<span class="pc" id="L164">  def deleteFile(src: String, recursive: Boolean = false)(implicit hc: Configuration = Spark.spark.sparkContext.hadoopConfiguration) = {</span>
+<span class="fc" id="L165">    getFileSystem(src)(hc).delete(new Path(src), recursive)</span>
+  }
+
+<span class="nc" id="L168">  def getStringContent(inputPath: String)(implicit hc: Configuration = Spark.spark.sparkContext.hadoopConfiguration): String = {</span>
+
+<span class="nc" id="L170">    val fs = getFileSystem(inputPath)</span>
+<span class="nc" id="L171">    val in = fs.open(new Path(inputPath))</span>
+<span class="nc" id="L172">    val br = new BufferedReader(new InputStreamReader(in, &quot;UTF-8&quot;))</span>
+<span class="nc" id="L173">    var line = &quot;&quot;</span>
+<span class="nc" id="L174">    val strBuff = new StringBuffer(1024 * 1024)</span>
+
+<span class="nc" id="L176">    line = br.readLine()</span>
+<span class="nc bnc" id="L177" title="All 2 branches missed.">    while (line != null) {</span>
+<span class="nc" id="L178">      strBuff.append(line)</span>
+<span class="nc" id="L179">      line = br.readLine()</span>
+    }
+<span class="nc" id="L181">    strBuff.toString</span>
+  }
+
+  def getBitmapCount(bitmapPath: String,
+<span class="fc" id="L185">                     attributeId: String)(implicit spark: SparkSession = Spark.spark) = {</span>
+
+<span class="fc" id="L187">    spark</span>
+<span class="fc" id="L188">      .read</span>
+<span class="fc" id="L189">      .format(classOf[BitmapFileFormat].getName)</span>
+<span class="fc" id="L190">      .load(bitmapPath)</span>
+<span class="fc" id="L191">      .groupBy(attributeId)</span>
+<span class="fc" id="L192">      .count</span>
+<span class="fc" id="L193">      .withColumnRenamed(&quot;count&quot;, Constants.BITMAP_COUNT)</span>
+  }
+
+  def concatToPath(path: String,
+                   suffix: String,
+<span class="fc" id="L198">                   delimiter: String = &quot;/&quot;): String = {</span>
+
+<span class="pc" id="L200">    path.endsWith(delimiter) match {</span>
+<span class="fc bfc" id="L201" title="All 2 branches covered.">      case true =&gt; path+suffix</span>
+<span class="pc bpc" id="L202" title="1 of 2 branches missed.">      case false =&gt; path+delimiter+suffix</span>
+    }
+  }
+
+  def repartitionBitmaps(inputPath: String,
+                         outputPath: String,
+                         attributeId: String,
+<span class="nc" id="L209">                         threadCount: Int = 1,</span>
+<span class="fc" id="L210">                         numPartitions: Int = 1)</span>
+<span class="fc" id="L211">                        (implicit spark: SparkSession = Spark.spark): Unit = {</span>
+
+<span class="fc" id="L213">    val fileSystem = getFileSystem(outputPath)</span>
+<span class="fc" id="L214">    val bitmaps = spark</span>
+<span class="fc" id="L215">      .read</span>
+<span class="fc" id="L216">      .format(classOf[BitmapFileFormat].getName)</span>
+<span class="fc" id="L217">      .load(inputPath)</span>
+<span class="fc" id="L218">    val attributes = bitmaps</span>
+<span class="fc" id="L219">      .uniques(col(attributeId))</span>
+<span class="fc" id="L220">      .collect()</span>
+<span class="fc" id="L221">      .map(r =&gt; r.get(0))</span>
+<span class="fc" id="L222">    val pAttributes = attributes.par</span>
+<span class="fc" id="L223">    pAttributes.tasksupport = new ForkJoinTaskSupport(new scala.concurrent.forkjoin.ForkJoinPool(threadCount))</span>
+<span class="fc" id="L224">    pAttributes.foreach(a =&gt; {</span>
+<span class="fc" id="L225">      val outputBitmap = concatToPath(outputPath, s&quot;${attributeId}=$a&quot;)</span>
+
+<span class="pc bpc" id="L227" title="1 of 2 branches missed.">      if (!fileSystem.exists(new Path(concatToPath(outputBitmap, &quot;_SUCCESS&quot;)))) {</span>
+<span class="fc" id="L228">        spark</span>
+<span class="fc" id="L229">          .read</span>
+<span class="fc" id="L230">          .format(classOf[BitmapFileFormat].getName)</span>
+<span class="fc" id="L231">          .load(concatToPath(inputPath, s&quot;${attributeId}=$a&quot;))</span>
+<span class="fc" id="L232">          .repartition(numPartitions)</span>
+<span class="fc" id="L233">          .write</span>
+<span class="fc" id="L234">          .mode(SaveMode.Overwrite)</span>
+<span class="fc" id="L235">          .format(classOf[BitmapFileFormat].getName)</span>
+<span class="fc" id="L236">          .option(&quot;mapreduce.fileoutputcommitter.algorithm.version&quot;, &quot;2&quot;)</span>
+<span class="fc" id="L237">          .save(outputBitmap)</span>
+      }
+    })
+  }
+
+  def updateCSVFile(file: String,
+                    header: Seq[String],
+                    idIndex: Int,
+                    newRow: Seq[String],
+<span class="nc" id="L246">                    format: CSVFormat = new MyTSVFormat): Unit = {</span>
+
+<span class="nc" id="L248">    val fs = getFileSystem(file)</span>
+
+<span class="nc bnc" id="L250" title="All 2 branches missed.">    val updated = if (fs.exists(new Path(file))) {</span>
+<span class="nc" id="L251">      ListBuffer.empty[Seq[String]]</span>
+    } else {
+<span class="nc" id="L253">      fs.create(new Path(file)).close</span>
+<span class="nc" id="L254">      val l = ListBuffer.empty[Seq[String]]</span>
+<span class="nc" id="L255">      l += header</span>
+    }
+
+<span class="nc" id="L258">    var contains = false</span>
+<span class="nc" id="L259">    val in = fs.open(new Path(file)).getWrappedStream</span>
+<span class="nc" id="L260">    val ou = fs.create(new Path(file)).getWrappedStream</span>
+
+<span class="nc" id="L262">    CSVReader</span>
+<span class="nc" id="L263">      .open(new InputStreamReader(in))(format)</span>
+<span class="nc" id="L264">      .all</span>
+<span class="nc" id="L265">      .map(oldRow =&gt; {</span>
+<span class="nc bnc" id="L266" title="All 2 branches missed.">        if (oldRow(idIndex).equals(newRow(idIndex))) {</span>
+<span class="nc" id="L267">          contains = true</span>
+<span class="nc" id="L268">          updated += newRow</span>
+        } else {
+<span class="nc" id="L270">          updated += oldRow</span>
+        }
+      })
+<span class="nc bnc" id="L273" title="All 2 branches missed.">    if (!contains) {</span>
+<span class="nc" id="L274">      updated += newRow</span>
+    }
+
+<span class="nc" id="L277">    CSVWriter</span>
+<span class="nc" id="L278">      .open(ou)(new MyTSVFormat)</span>
+<span class="nc" id="L279">      .writeAll(updated)</span>
+<span class="nc" id="L280">    ou.flush</span>
+<span class="nc" id="L281">    ou.close</span>
+<span class="nc" id="L282">    in.close</span>
+  }
+<span class="fc" id="L284">}</span>
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

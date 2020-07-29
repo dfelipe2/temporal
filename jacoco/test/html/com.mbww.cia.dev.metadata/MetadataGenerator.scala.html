@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MetadataGenerator.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.metadata</a> &gt; <span class="el_source">MetadataGenerator.scala</span></div><h1>MetadataGenerator.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.metadata
+
+import java.net.URI
+
+import com.mbww.cia.common.Spark._
+import com.mbww.cia.common.bitmap.BitmapBinaryFileFormat
+import com.mbww.cia.common.{Module, copyFile, deleteFile, listAllPaths}
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.{FileSystem, Path}
+import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.expressions.Window
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.types._
+import org.json.JSONObject
+
+<span class="fc" id="L16">class MetadataGenerator extends Module {</span>
+
+  def generateFromBitmap(bitmapPath: String,
+                         inputJsonPath: String,
+                         outputJsonPath: String,
+                         version: String,
+                         market: String,
+                         dataset: String,
+                         attributeId: String): Unit = {
+
+<span class="pc bpc" id="L26" title="2 of 4 branches missed.">    val (metadataIds: DataFrame, maxAttId: Int) = getMetadata(inputJsonPath)</span>
+<span class="fc" id="L27">    val inputAttributes = spark.read.format(classOf[BitmapBinaryFileFormat].getName).load(bitmapPath).withColumnRenamed(attributeId, &quot;attribute_id&quot;).drop(&quot;bitmap&quot;)</span>
+<span class="fc" id="L28">    setMetadata(outputJsonPath, version, market, dataset, metadataIds, maxAttId, inputAttributes)</span>
+  }
+
+  def generateFromParquet(parquetPath: String,
+                          inputJsonPath: String,
+                          outputJsonPath: String,
+                          version: String,
+                          market: String,
+                          dataset: String,
+                          attributeId: String): Unit = {
+
+<span class="pc bpc" id="L39" title="2 of 4 branches missed.">    val (metadataIds: DataFrame, maxAttId: Int) = getMetadata(inputJsonPath)</span>
+<span class="fc" id="L40">    val inputAttributes = spark.read.load(parquetPath).withColumnRenamed(attributeId, &quot;attribute_id&quot;)</span>
+<span class="fc" id="L41">    setMetadata(outputJsonPath, version, market, dataset, metadataIds, maxAttId, inputAttributes)</span>
+
+  }
+
+  def generateFromBitmapFile(bitmapfilePath: String,
+                             inputJsonPath: String,
+                             outputJsonPath: String,
+                             version: String,
+                             market: String,
+                             dataset: String,
+                             attributeId: String): Unit = {
+
+<span class="pc bpc" id="L53" title="2 of 4 branches missed.">    val (metadataIds: DataFrame, maxAttId: Int) = getMetadata(inputJsonPath)</span>
+<span class="fc" id="L54">    val inputAttributes = spark.read.option(&quot;header&quot;, &quot;true&quot;).option(&quot;delimiter&quot;, &quot;\t&quot;).format(&quot;CSV&quot;)</span>
+<span class="fc" id="L55">      .load(bitmapfilePath).withColumnRenamed(attributeId, &quot;attribute_id&quot;)</span>
+<span class="fc" id="L56">    setMetadata(outputJsonPath, version, market, dataset, metadataIds, maxAttId, inputAttributes)</span>
+
+  }
+
+  def generateFromListParquetFile(listParquetFilePath: String,
+                                  inputJsonPath: String,
+                                  outputJsonPath: String,
+                                  version: String,
+                                  market: String,
+                                  dataset: String,
+                                  attributeId: String): Unit = {
+
+<span class="nc bnc" id="L68" title="All 4 branches missed.">    val (metadataIds: DataFrame, maxAttId: Int) = getMetadata(inputJsonPath)</span>
+<span class="nc" id="L69">    val inputAttributes = spark.read.load(listParquetFilePath).withColumnRenamed(attributeId, &quot;attribute_id&quot;)</span>
+<span class="nc" id="L70">    setMetadata(outputJsonPath, version, market, dataset, metadataIds, maxAttId, inputAttributes)</span>
+
+  }
+
+  private def getMetadata(inputJsonPath: String) = {
+
+<span class="fc" id="L76">    val sp = spark</span>
+    import sp.implicits._
+
+<span class="fc bfc" id="L79" title="All 2 branches covered.">    val metadataIds = if (inputJsonPath.isEmpty) {</span>
+<span class="fc" id="L80">      Seq.empty[(String, String)].toDF(&quot;attr&quot;, &quot;id&quot;)</span>
+    }
+    else {
+
+<span class="fc" id="L84">      val conf = new Configuration()</span>
+<span class="fc" id="L85">      val uri = new URI(inputJsonPath)</span>
+<span class="fc" id="L86">      val fs = FileSystem.get(uri, conf)</span>
+<span class="fc" id="L87">      val folderExists = fs.exists(new Path(inputJsonPath))</span>
+<span class="fc" id="L88">      val csFile = fs.getContentSummary(new Path(inputJsonPath))</span>
+<span class="fc" id="L89">      val fileCount = csFile.getFileCount</span>
+
+<span class="pc bpc" id="L91" title="2 of 4 branches missed.">      if (folderExists &amp;&amp; fileCount == 0) {</span>
+<span class="nc" id="L92">        Seq.empty[(String, String)].toDF(&quot;attr&quot;, &quot;id&quot;)</span>
+      }
+<span class="pc bpc" id="L94" title="1 of 2 branches missed.">      else if (!folderExists) {</span>
+<span class="nc" id="L95">        Seq.empty[(String, String)].toDF(&quot;attr&quot;, &quot;id&quot;)</span>
+      }
+      else {
+<span class="fc" id="L98">        val a = spark.read.json(inputJsonPath).select(explode($&quot;mapping&quot;).as(&quot;exploded&quot;))</span>
+<span class="fc" id="L99">        a.select(a.col(&quot;exploded.attr&quot;).alias(&quot;attr&quot;), a.col(&quot;exploded.id&quot;).alias(&quot;id&quot;))</span>
+      }
+    }
+
+<span class="fc" id="L103">    val maxAttId = metadataIds</span>
+<span class="fc" id="L104">      .select(max(col(&quot;id&quot;).cast(IntegerType)))</span>
+<span class="fc" id="L105">      .first</span>
+<span class="fc" id="L106">      .getAs[Int](0)</span>
+<span class="fc" id="L107">    (metadataIds, maxAttId)</span>
+  }
+
+  private def setMetadata(outputJsonPath: String, version: String, market: String, dataset: String, metadataIds: DataFrame, maxAttId: Int, inputAttributesDf: DataFrame): Unit = {
+
+<span class="fc" id="L112">    val attributes = inputAttributesDf.select(&quot;attribute_id&quot;).distinct</span>
+<span class="fc" id="L113">      .withColumnRenamed(&quot;attribute_id&quot;, &quot;attr&quot;)</span>
+<span class="fc" id="L114">      .withColumn(&quot;attr&quot;, lower(col(&quot;attr&quot;)))</span>
+
+<span class="fc" id="L116">    val newAttributes = attributes</span>
+<span class="fc" id="L117">      .select(&quot;attr&quot;)</span>
+<span class="fc" id="L118">      .except(metadataIds.select(&quot;attr&quot;))</span>
+
+<span class="fc" id="L120">    val winSpec = Window</span>
+<span class="fc" id="L121">      .orderBy(col(&quot;attr&quot;).asc)</span>
+
+<span class="fc" id="L123">    val newAttIds = newAttributes</span>
+<span class="fc" id="L124">      .withColumn(&quot;id&quot;, row_number().over(winSpec) + lit(maxAttId))</span>
+
+<span class="fc" id="L126">    val newMetadataIds = metadataIds</span>
+<span class="fc" id="L127">      .union(newAttIds)</span>
+<span class="fc" id="L128">      .cache</span>
+
+<span class="fc" id="L130">    newMetadataIds.createOrReplaceTempView(&quot;metadata_ids&quot;)</span>
+
+<span class="fc" id="L132">    val metadataIdsWihColumns = spark.sql(&quot;select '&quot; + version + &quot;' as version, '&quot; + market + &quot;' as market, '&quot; + dataset + &quot;' as dataset, attr, id from metadata_ids&quot;)</span>
+<span class="fc" id="L133">    val metadataIdsWithStructColumn = metadataIdsWihColumns.withColumn(&quot;mapping&quot;, struct(col(&quot;attr&quot;), col(&quot;id&quot;))).select(&quot;version&quot;, &quot;market&quot;, &quot;dataset&quot;, &quot;mapping&quot;)</span>
+<span class="fc" id="L134">    val metadataIdsWithGroupedStructColumn = metadataIdsWithStructColumn.groupBy(&quot;version&quot;, &quot;market&quot;, &quot;dataset&quot;).agg(collect_set(&quot;mapping&quot;).alias(&quot;mapping&quot;))</span>
+
+<span class="fc" id="L136">    val tmpFolder = s&quot;$outputJsonPath/tmp&quot;</span>
+<span class="fc" id="L137">    metadataIdsWithGroupedStructColumn.repartition(1).write.json(tmpFolder)</span>
+
+<span class="fc" id="L139">    val paths = listAllPaths(tmpFolder)</span>
+<span class="fc" id="L140">    val partFile = paths.filter(_.toString.matches(&quot;.+\\.json&quot;)).head.toString</span>
+<span class="fc" id="L141">    val finalOutputFile = s&quot;$outputJsonPath/${dataset.toLowerCase}-metadata.json&quot;</span>
+<span class="fc" id="L142">    copyFile(partFile, finalOutputFile)</span>
+<span class="fc" id="L143">    deleteFile(tmpFolder, recursive = true)</span>
+  }
+
+<span class="fc" id="L146">  override def run(args: JSONObject): Unit = {</span>
+
+<span class="fc" id="L148">    val inputType = args.getString(&quot;input_type&quot;)</span>
+<span class="fc" id="L149">    val inputJsonPath = args.getString(&quot;input_json_path&quot;)</span>
+<span class="fc" id="L150">    val outputJsonPath = args.getString(&quot;output_json_path&quot;)</span>
+<span class="fc" id="L151">    val version = args.getString(&quot;version&quot;)</span>
+<span class="fc" id="L152">    val market = args.getString(&quot;market&quot;)</span>
+<span class="fc" id="L153">    val dataset = args.getString(&quot;dataset&quot;)</span>
+<span class="fc" id="L154">    val attributeId = args.getString(&quot;attribute_id&quot;)</span>
+
+<span class="pc bpc" id="L156" title="3 of 6 branches missed.">    if (inputType == &quot;bitmap&quot;) {</span>
+<span class="fc" id="L157">      val bitmapPath = args.getString(&quot;bitmap_path&quot;)</span>
+<span class="fc" id="L158">      generateFromBitmap(bitmapPath,</span>
+<span class="fc" id="L159">        inputJsonPath,</span>
+<span class="fc" id="L160">        outputJsonPath,</span>
+<span class="fc" id="L161">        version,</span>
+<span class="fc" id="L162">        market,</span>
+<span class="fc" id="L163">        dataset,</span>
+<span class="fc" id="L164">        attributeId)</span>
+    }
+<span class="pc bpc" id="L166" title="3 of 6 branches missed.">    else if (inputType == &quot;parquet&quot;) {</span>
+<span class="fc" id="L167">      val parquetPath = args.getString(&quot;parquet_path&quot;)</span>
+<span class="fc" id="L168">      generateFromParquet(parquetPath,</span>
+<span class="fc" id="L169">        inputJsonPath,</span>
+<span class="fc" id="L170">        outputJsonPath,</span>
+<span class="fc" id="L171">        version,</span>
+<span class="fc" id="L172">        market,</span>
+<span class="fc" id="L173">        dataset,</span>
+<span class="fc" id="L174">        attributeId)</span>
+    }
+<span class="pc bpc" id="L176" title="4 of 6 branches missed.">    else if (inputType == &quot;bitmapFile&quot;) {</span>
+<span class="fc" id="L177">      val bitmapfilePath = args.getString(&quot;bitmap_file_path&quot;)</span>
+<span class="fc" id="L178">      generateFromBitmapFile(bitmapfilePath,</span>
+<span class="fc" id="L179">        inputJsonPath,</span>
+<span class="fc" id="L180">        outputJsonPath,</span>
+<span class="fc" id="L181">        version,</span>
+<span class="fc" id="L182">        market,</span>
+<span class="fc" id="L183">        dataset,</span>
+<span class="fc" id="L184">        attributeId)</span>
+    }
+<span class="nc bnc" id="L186" title="All 6 branches missed.">    else if (inputType == &quot;listParquetFile&quot;) {</span>
+<span class="nc" id="L187">      val listParquetFilePath = args.getString(&quot;list_parquet_file_path&quot;)</span>
+<span class="nc" id="L188">      generateFromListParquetFile(listParquetFilePath,</span>
+<span class="nc" id="L189">        inputJsonPath,</span>
+<span class="nc" id="L190">        outputJsonPath,</span>
+<span class="nc" id="L191">        version,</span>
+<span class="nc" id="L192">        market,</span>
+<span class="nc" id="L193">        dataset,</span>
+<span class="nc" id="L194">        attributeId)</span>
+    }
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

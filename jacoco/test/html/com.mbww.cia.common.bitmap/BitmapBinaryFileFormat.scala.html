@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>BitmapBinaryFileFormat.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.common.bitmap</a> &gt; <span class="el_source">BitmapBinaryFileFormat.scala</span></div><h1>BitmapBinaryFileFormat.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.common.bitmap
+
+import com.mbww.cia.common.bitmap.BitmapFileFormat.SerializableConfiguration
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.{FileStatus, Path}
+import org.apache.hadoop.io.compress.CompressionCodecFactory
+import org.apache.hadoop.mapreduce.{Job, TaskAttemptContext}
+import org.apache.spark.TaskContext
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.UnsafeRow
+import org.apache.spark.sql.catalyst.expressions.codegen.{BufferHolder, UnsafeRowWriter}
+import org.apache.spark.sql.catalyst.util.CompressionCodecs
+import org.apache.spark.sql.execution.datasources._
+import org.apache.spark.sql.sources.{DataSourceRegister, Filter}
+import org.apache.spark.sql.types.{BinaryType, StructType}
+
+/**
+  * A file format for reading/writing roaring bitmaps into binary rows.
+  */
+<span class="pc" id="L21">class BitmapBinaryFileFormat extends FileFormat with DataSourceRegister {</span>
+
+<span class="nc" id="L23">  private var codecFactory: CompressionCodecFactory = _</span>
+
+  override def inferSchema(sparkSession: SparkSession,
+                           options: Map[String, String],
+                           files: Seq[FileStatus]): Option[StructType] = {
+<span class="fc" id="L28">    Some(new StructType().add(BitmapFileFormat.BinaryColumn, BinaryType))</span>
+  }
+
+  override def prepareWrite(sparkSession: SparkSession,
+                            job: Job,
+                            options: Map[String, String],
+                            dataSchema: StructType): OutputWriterFactory = {
+
+<span class="fc" id="L36">    val bitmapIndexOrdinal = options.getOrElse(BitmapFileFormat.BitmapIndicesOrdinal, &quot;0&quot;).toInt</span>
+<span class="fc" id="L37">    val bitmapMaxWriteAttempts = options.getOrElse(BitmapFileFormat.MaxWriteAttempts, &quot;5&quot;).toInt</span>
+<span class="fc" id="L38">    verifySchema(dataSchema, bitmapIndexOrdinal)</span>
+
+<span class="fc" id="L40">    val conf = job.getConfiguration</span>
+<span class="pc" id="L41">    options.get(&quot;compression&quot;).map(CompressionCodecs.getCodecClassName).foreach { codec =&gt;</span>
+<span class="nc" id="L42">      CompressionCodecs.setCodecConfiguration(conf, codec)</span>
+    }
+
+<span class="fc" id="L45">    new OutputWriterFactory {</span>
+      override def newInstance(path: String,
+                               dataSchema: StructType,
+                               context: TaskAttemptContext): OutputWriter = {
+<span class="fc" id="L49">        new BitmapBinaryOutputWriter(path, bitmapIndexOrdinal, bitmapMaxWriteAttempts, context)</span>
+      }
+
+      override def getFileExtension(context: TaskAttemptContext): String = {
+<span class="fc" id="L53">        &quot;.rb&quot; + CodecStreams.getCompressionExtension(context)</span>
+      }
+    }
+  }
+
+<span class="fc" id="L58">  private def verifySchema(schema: StructType, indexOrdinal: Int): Unit = {</span>
+<span class="pc bpc" id="L59" title="2 of 4 branches missed.">    if (indexOrdinal &gt;= schema.size || indexOrdinal &lt; 0) {</span>
+<span class="nc" id="L60">      throw new RuntimeException(</span>
+<span class="nc" id="L61">        s&quot;Ordinal ${indexOrdinal} is not valid for a schema of ${schema.size} columns.&quot;)</span>
+    }
+<span class="fc" id="L63">    val tpe = schema(indexOrdinal).dataType</span>
+<span class="pc bpc" id="L64" title="4 of 6 branches missed.">    if (tpe != BinaryType) {</span>
+<span class="nc" id="L65">      throw new RuntimeException(</span>
+<span class="nc" id="L66">        s&quot;Bitmap data source supports an BinaryType column @ ordinal(${indexOrdinal}), but you have ${tpe}.&quot;)</span>
+    }
+  }
+
+<span class="fc" id="L70">  override def shortName(): String = &quot;binaryBitmap&quot;</span>
+
+  override def isSplitable(sparkSession: SparkSession,
+                           options: Map[String, String],
+<span class="fc" id="L74">                           path: Path): Boolean = false</span>
+
+  override protected def buildReader(sparkSession: SparkSession,
+                                     dataSchema: StructType,
+                                     partitionSchema: StructType,
+                                     requiredSchema: StructType,
+                                     filters: Seq[Filter],
+                                     options: Map[String, String],
+                                     hadoopConf: Configuration): PartitionedFile =&gt; Iterator[InternalRow] = {
+<span class="fc" id="L83">    assert(</span>
+<span class="pc bpc" id="L84" title="1 of 2 branches missed.">      requiredSchema.length &lt;= 1,</span>
+<span class="pc" id="L85">      s&quot;&quot;&quot;Bitmap data source only produces one data column named &quot;${BitmapFileFormat.BinaryColumn}&quot;.&quot;&quot;&quot;)</span>
+
+<span class="fc" id="L87">    val broadcastedHadoopConf = sparkSession.sparkContext.broadcast(new SerializableConfiguration(hadoopConf))</span>
+<span class="fc" id="L88">    val isBlankFile = requiredSchema.isEmpty</span>
+
+<span class="fc" id="L90">    (file: PartitionedFile) =&gt; {</span>
+<span class="fc" id="L91">      val reader = new BitmapBinaryFileReader(file, broadcastedHadoopConf.value.value)</span>
+<span class="pc bpc" id="L92" title="1 of 2 branches missed.">      Option(TaskContext.get()).foreach(_.addTaskCompletionListener(_ =&gt; reader.close()))</span>
+
+<span class="fc bfc" id="L94" title="All 2 branches covered.">      if (isBlankFile) {</span>
+<span class="fc" id="L95">        val emptyUnsafeRow = new UnsafeRow(0)</span>
+<span class="fc" id="L96">        reader.map(_ =&gt; emptyUnsafeRow)</span>
+      } else {
+<span class="fc" id="L98">        val currentRow = new UnsafeRow(1)</span>
+<span class="fc" id="L99">        val bufferHolder = new BufferHolderOld(currentRow)</span>
+<span class="fc" id="L100">        val writer = new UnsafeRowWriterOld(bufferHolder, 1)</span>
+
+<span class="fc" id="L102">        reader.map(writable =&gt; {</span>
+<span class="fc" id="L103">          bufferHolder.reset()</span>
+<span class="fc" id="L104">          writer.write(0, writable.copyBytes())</span>
+<span class="fc" id="L105">          currentRow.setTotalSize(bufferHolder.totalSize())</span>
+<span class="fc" id="L106">          currentRow</span>
+        })
+      }
+    }
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

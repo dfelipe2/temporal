@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PipelineNotificator.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.core.pipeline</a> &gt; <span class="el_source">PipelineNotificator.scala</span></div><h1>PipelineNotificator.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.core.pipeline
+
+import com.mbww.cia.core.logging.CIALogger
+import com.mbww.cia.core.logging.CIALogger.MessageAttribute
+import com.mbww.cia.core.pipeline.PipelineNotificator._
+
+import scala.collection.mutable.ListBuffer
+
+object PipelineNotificator {
+
+<span class="nc" id="L11">  val ATTR_EVENT = &quot;event&quot;</span>
+<span class="nc" id="L12">  val ATTR_TIMESTAMP = &quot;timestamp&quot;</span>
+<span class="nc" id="L13">  val ATTR_MESSAGE = &quot;message&quot;</span>
+<span class="nc" id="L14">  val ATTR_CAUSE = &quot;cause&quot;</span>
+<span class="nc" id="L15">  val ATTR_STACK_TRACE = &quot;stack_trace&quot;</span>
+
+<span class="nc" id="L17">  val ATTR_PIPELINE_NAME = &quot;pipeline_name&quot;</span>
+<span class="nc" id="L18">  val ATTR_PIPELINE_ID = &quot;pipeline_id&quot;</span>
+
+<span class="nc" id="L20">  val ATTR_STEP_NAME = &quot;step_name&quot;</span>
+<span class="nc" id="L21">  val ATTR_STEP_NUM = &quot;step_num&quot;</span>
+<span class="nc" id="L22">  val ATTR_STEP_CLASS = &quot;step_class&quot;</span>
+}
+
+<span class="nc" id="L25">class PipelineNotificator(log: CIALogger) extends PipelineListener {</span>
+
+  private def buildLogAttributes(e: Either[PipelineEvent, StepEvent]): Seq[MessageAttribute] = {
+
+<span class="nc" id="L29">    val attrs = ListBuffer.empty[MessageAttribute]</span>
+
+<span class="nc" id="L31">    e match {</span>
+<span class="nc bnc" id="L32" title="All 2 branches missed.">      case Left(pe) =&gt;</span>
+<span class="nc" id="L33">        attrs += MessageAttribute(ATTR_EVENT, pe.event)</span>
+<span class="nc" id="L34">        attrs += MessageAttribute(ATTR_TIMESTAMP, pe.timestamp)</span>
+<span class="nc" id="L35">        attrs += MessageAttribute(ATTR_PIPELINE_ID, pe.source.id)</span>
+<span class="nc" id="L36">        attrs += MessageAttribute(ATTR_PIPELINE_NAME, pe.source.name)</span>
+<span class="nc" id="L37">        pe.message.map(msg =&gt; attrs += MessageAttribute(ATTR_MESSAGE, msg))</span>
+<span class="nc" id="L38">        pe.reason.map(ex =&gt; attrs += MessageAttribute(ATTR_CAUSE, ex.toString))</span>
+<span class="nc" id="L39">        pe.reason.map(ex =&gt; attrs += MessageAttribute(ATTR_STACK_TRACE, ex.getStackTrace.mkString(&quot;&quot;, &quot;\n&quot;, &quot;\n&quot;)))</span>
+<span class="nc bnc" id="L40" title="All 2 branches missed.">      case Right(se) =&gt;</span>
+<span class="nc" id="L41">        attrs += MessageAttribute(ATTR_EVENT, se.event)</span>
+<span class="nc" id="L42">        attrs += MessageAttribute(ATTR_TIMESTAMP, se.timestamp)</span>
+<span class="nc" id="L43">        attrs += MessageAttribute(ATTR_PIPELINE_ID, se.pipeline.id)</span>
+<span class="nc" id="L44">        attrs += MessageAttribute(ATTR_PIPELINE_NAME, se.pipeline.name)</span>
+<span class="nc" id="L45">        attrs += MessageAttribute(ATTR_STEP_CLASS, se.source.clazz)</span>
+<span class="nc" id="L46">        attrs += MessageAttribute(ATTR_STEP_NAME, se.source.name)</span>
+<span class="nc" id="L47">        attrs += MessageAttribute(ATTR_STEP_NUM, se.source.num)</span>
+<span class="nc" id="L48">        se.message.map(msg =&gt; attrs += MessageAttribute(ATTR_MESSAGE, msg))</span>
+<span class="nc" id="L49">        se.reason.map(ex =&gt; attrs += MessageAttribute(ATTR_CAUSE, ex.toString))</span>
+<span class="nc" id="L50">        se.reason.map(ex =&gt; attrs += MessageAttribute(ATTR_STACK_TRACE, ex.getStackTrace.mkString(&quot;&quot;, &quot;\n&quot;, &quot;\n&quot;)))</span>
+    }
+<span class="nc" id="L52">    attrs</span>
+  }
+
+  override def pipelineStarted(e: PipelineEvent): Unit = {
+<span class="nc" id="L56">    log.info(e.event, buildLogAttributes(Left(e)): _*)</span>
+  }
+
+  override def pipelineCompleted(e: PipelineEvent): Unit = {
+<span class="nc" id="L60">    log.info(e.event, buildLogAttributes(Left(e)): _*)</span>
+  }
+
+  override def pipelineFailed(e: PipelineEvent): Unit = {
+<span class="nc" id="L64">    log.error(e.event, buildLogAttributes(Left(e)): _*)</span>
+  }
+
+  override def stepStarted(e: StepEvent): Unit = {
+<span class="nc" id="L68">    log.info(e.event, buildLogAttributes(Right(e)): _*)</span>
+  }
+
+  override def stepCompleted(e: StepEvent): Unit = {
+<span class="nc" id="L72">    log.info(e.event, buildLogAttributes(Right(e)): _*)</span>
+  }
+
+  override def stepFailed(e: StepEvent): Unit = {
+<span class="nc" id="L76">    log.error(e.event, buildLogAttributes(Right(e)): _*)</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

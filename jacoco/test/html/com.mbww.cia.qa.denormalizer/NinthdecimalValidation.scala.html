@@ -1,0 +1,533 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>NinthdecimalValidation.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.qa.denormalizer</a> &gt; <span class="el_source">NinthdecimalValidation.scala</span></div><h1>NinthdecimalValidation.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.qa.denormalizer
+
+import com.mbww.cia.common.Module
+import com.mbww.cia.common.Spark.spark
+import com.mbww.cia.qa.utils.UtilsFunction
+import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.functions.{col, lit, to_date,udf}
+import org.json.JSONObject
+import org.slf4j.LoggerFactory
+
+<span class="fc" id="L11">class NinthdecimalValidation extends Module{</span>
+
+<span class="fc" id="L13">  val log = LoggerFactory.getLogger(&quot;CIA Pipeline&quot;)</span>
+
+  /*
+  def camcelCaseCheck(inputDF: DataFrame, columns: Array[String]): Boolean = {
+
+    var check = true
+    var check1 = 0
+
+    val toCamelCase = (str: String) =&gt; {
+      val words = str.split(&quot; &quot;)
+
+      for(word &lt;- words){
+        if(word == null){
+          str
+        }else{
+          check = word.charAt(0).isUpper
+          if(check == false){
+            check1 = check1+1
+          }
+          str
+        }
+      }
+    }
+
+    val toCamel_Case = udf(toCamelCase)
+
+    for(column &lt;- columns){
+      val df = inputDF.withColumn(column,lit(toCamel_Case(col(column))))
+    }
+
+    check = if(check1 == 0){
+      true
+    }else{
+      false
+    }
+    return check
+  }
+*/
+
+  def denormalizedCommercialDF(ndCwParqPath: String,
+                               ndFactComParqPath: String,
+                               ndPoiDetailPath: String,
+                               infobasePath: String,
+                               processingYear: String,
+                               processingMonth: String,
+                               outputPath: String): DataFrame ={
+    //Crosswalk table
+<span class="fc" id="L60">    val ndCwParqData = spark.read.load(ndCwParqPath)</span>
+<span class="fc" id="L61">    ndCwParqData.createOrReplaceTempView(&quot;nd_cw&quot;)</span>
+
+    //Dimensions
+<span class="fc" id="L64">    val ndPoiDetailData = spark.read.load(ndPoiDetailPath)</span>
+<span class="fc" id="L65">    ndPoiDetailData.createOrReplaceTempView(&quot;nd_poi_detail&quot;)</span>
+
+    //Unique Keys
+<span class="fc" id="L68">    val ndUniquekeys = spark.read.load(infobasePath)</span>
+<span class="fc" id="L69">    ndUniquekeys.createOrReplaceTempView(&quot;nd_unique_keys&quot;)</span>
+
+    //load fact data for Commercial places
+<span class="fc" id="L72">    val ndFactComByMonth = spark.read.load(ndFactComParqPath + &quot;year=&quot; + processingYear + &quot;/month=&quot; + processingMonth + &quot;/&quot;)</span>
+<span class="fc" id="L73">    ndFactComByMonth.createOrReplaceTempView(&quot;nd_fact_com_month&quot;)</span>
+
+    //join fact commercial with poi details
+<span class="fc" id="L76">    val ndFactComByMonthDetail = spark.sql(&quot;SELECT a.device_anonymous_id, a.timestamp_local, a.commercial_unique_id, b.commercial_business_name, b.commercial_chain_id, b.commercial_chain_name, b.categoryname, b.city, b.state, b.zip FROM nd_fact_com_month a inner join nd_poi_detail b ON a.commercial_unique_id = b.commercial_unique_id&quot;)</span>
+<span class="fc" id="L77">    ndFactComByMonthDetail.createOrReplaceTempView(&quot;nd_fact_com_month_detail&quot;)</span>
+
+    //create customTimestamp for commercial places
+<span class="fc" id="L80">    val ndFactComByMonthDetailTimestamp = spark.sql(&quot;SELECT timestamp_local, to_timestamp(timestamp_local,'yyyy-MM-dd HH:mm:ss') as custom_timestamp, device_anonymous_id, commercial_unique_id, commercial_business_name, commercial_chain_id, commercial_chain_name, categoryname, city, state, zip FROM nd_fact_com_month_detail&quot;)</span>
+<span class="fc" id="L81">    ndFactComByMonthDetailTimestamp.createOrReplaceTempView(&quot;nd_fact_com_month_detail_timestamp&quot;)</span>
+
+    //join cw and infobase
+<span class="fc" id="L84">    val ndCwUniqueKeys = spark.sql(&quot;SELECT a.minorca_id, b.mbid, b.mbid_value, b.hhid, b.hhid_value FROM nd_cw a inner join nd_unique_keys b ON a.mbid = b.mbid_value&quot;)</span>
+<span class="fc" id="L85">    ndCwUniqueKeys.createOrReplaceTempView(&quot;nd_cw_uniqueKeys&quot;)</span>
+
+    //fact commercial without duplicates
+<span class="fc" id="L88">    val ndFactComFilterDup = spark.sql(&quot;select * from (select ROW_NUMBER()  OVER(PARTITION BY device_anonymous_id, timestamp_local, custom_timestamp, commercial_unique_id, commercial_business_name, commercial_chain_id, commercial_chain_name, categoryname, city, state, zip ORDER BY timestamp_local) as RowNum,  device_anonymous_id, timestamp_local, custom_timestamp, commercial_unique_id, commercial_business_name, commercial_chain_id, commercial_chain_name, categoryname, city, state, zip  from nd_fact_com_month_detail_timestamp) x where RowNum=1&quot;)</span>
+<span class="fc" id="L89">    ndFactComFilterDup.createOrReplaceTempView(&quot;nd_fact_com_filter_dup&quot;)</span>
+
+    //join cw infobase and fact commercial
+<span class="fc" id="L92">    val ndFactComCwUniqueKeys = spark.sql(&quot;SELECT a.timestamp_local, a.custom_timestamp, a.device_anonymous_id, a.commercial_unique_id, a.commercial_business_name, a.commercial_chain_id, a.commercial_chain_name, a.categoryname, a.city, a.state, a.zip, b.mbid, b.mbid_value, b.hhid, b.hhid_value FROM nd_fact_com_filter_dup a inner join nd_cw_uniqueKeys b ON (a.device_anonymous_id = b.minorca_id)&quot;)</span>
+<span class="fc" id="L93">    ndFactComCwUniqueKeys.createOrReplaceTempView(&quot;nd_fact_com_cw_unique_keys&quot;)</span>
+
+    //include date in nd commercial
+<span class="fc" id="L96">    val ndFactComWithDate = spark.sql(&quot;SELECT timestamp_local, TO_DATE(CAST(UNIX_TIMESTAMP(custom_timestamp,'yyyy-MM-dd') AS TIMESTAMP)) AS date,&quot; +</span>
+      &quot; hour(custom_timestamp) as hour, device_anonymous_id, commercial_unique_id, commercial_business_name, commercial_chain_id, commercial_chain_name, categoryname, city, state, zip, mbid, mbid_value, hhid, hhid_value FROM nd_fact_com_cw_unique_keys&quot;)
+<span class="fc" id="L98">    ndFactComWithDate.createOrReplaceTempView(&quot;nd_fact_com_with_date&quot;)</span>
+
+    //Day parts for nd commercial
+<span class="fc" id="L101">    spark.sql(&quot;SELECT date, timestamp_local, device_anonymous_id, commercial_unique_id, commercial_business_name, commercial_chain_id, commercial_chain_name, categoryname, city, state, zip,&quot; +</span>
+<span class="fc" id="L102">      &quot; mbid, mbid_value, hhid, hhid_value, case when hour=0 then '23:00-01:00' else case when hour=1 then '23:00-01:00' else case when hour=2 then '02:00-04:00' else case when hour=3 then '02:00-04:00' else case when hour=4 then '02:00-04:00' else case when hour=5 then '05:00-06:00' else case when hour=6 then '05:00-06:00' else case when hour=7 then '07:00-08:00' else case when hour=8 then '07:00-08:00' else case when hour=9 then '09:00-10:00' else case when hour=10 then '09:00-10:00' else case when hour=11 then '11:00-13:00' else case when hour=12 then '11:00-13:00' else case when hour=13 then '11:00-13:00' else case when hour=14 then '14:00-16:00' else case when hour=15 then '14:00-16:00' else case when hour=16 then '14:00-16:00' else case when hour=17 then '17:00-18:00' else case when hour=18 then '17:00-18:00' else case when hour=19 then '19:00-20:00' else case when hour=20 then '19:00-20:00' else case when hour=21 then '21:00-22:00' else case when hour=22 then '21:00-22:00' else case when hour=23 then '23:00-01:00' else case when hour=24 then '23:00-01:00'  else 'NA' END END END END END END END END END END END END END END END END END END END END END END END END END as daypart FROM nd_fact_com_with_date&quot;).createOrReplaceTempView(&quot;nd_com_data_with_dayparts&quot;)</span>
+
+<span class="fc" id="L104">    val dfResultForCommercial = spark.sql(&quot;SELECT * FROM nd_com_data_with_dayparts&quot;)</span>
+
+<span class="fc" id="L106">    val selectColumnsForCommercial = Seq(col(&quot;mbid&quot;), col(&quot;mbid_value&quot;),col(&quot;hhid&quot;),col(&quot;hhid_value&quot;),col(&quot;device_anonymous_id&quot;), col(&quot;timestamp_local&quot;).as(&quot;local_timestamp&quot;)</span>
+<span class="fc" id="L107">      ,  col(&quot;date&quot;),col(&quot;city&quot;),</span>
+<span class="fc" id="L108">      col(&quot;state&quot;), col(&quot;zip&quot;), col(&quot;commercial_unique_id&quot;),</span>
+<span class="fc" id="L109">      col(&quot;commercial_business_name&quot;), col(&quot;commercial_chain_name&quot;),</span>
+<span class="fc" id="L110">      col(&quot;daypart&quot;), col(&quot;categoryname&quot;).as(&quot;category&quot;))</span>
+
+<span class="fc" id="L112">    val expectedResult=dfResultForCommercial.select(selectColumnsForCommercial: _*)</span>
+
+<span class="fc" id="L114">    expectedResult</span>
+  }
+
+  def validateNinthDecimalCommercial(ndCwParqPath: String,
+                                     ndFactComParqPath: String,
+                                     ndPoiDetailPath: String,
+                                     infobasePath: String,
+                                     processingYear: String,
+                                     processingMonth: String,
+                                     outputPath: String,
+                                     startDate: String,
+                                     endDate: String,
+                                     last_Month: Boolean): Unit = {
+
+<span class="fc" id="L128">    val expectedResult = denormalizedCommercialDF(ndCwParqPath, ndFactComParqPath, ndPoiDetailPath, infobasePath, processingYear, processingMonth, outputPath)</span>
+<span class="fc" id="L129">    val maxDay = UtilsFunction.getDaysInMonth(processingYear,processingMonth)</span>
+
+<span class="fc" id="L131">    val dayRange = (startDate.split(&quot;-&quot;)(2).toInt to endDate.split(&quot;-&quot;)(2).toInt).toArray</span>
+
+<span class="pc bpc" id="L133" title="1 of 2 branches missed.">    for(day &lt;- dayRange){</span>
+<span class="pc bpc" id="L134" title="1 of 2 branches missed.">      val newDay = (if (day &lt; 10) &quot;0&quot; + day else &quot;&quot; + day);</span>
+<span class="fc" id="L135">      println(s&quot;newDay&quot; + newDay)</span>
+<span class="fc" id="L136">      val filterdDf=expectedResult.filter(col(&quot;date&quot;)===processingYear+&quot;-&quot;+processingMonth+&quot;-&quot;+newDay)</span>
+<span class="fc" id="L137">      var expectedCount=filterdDf.count</span>
+<span class="fc" id="L138">      val actualData=spark.read.load(outputPath+&quot;/date=&quot;+processingYear+&quot;-&quot;+processingMonth+&quot;-&quot;+newDay+&quot;/&quot;)</span>
+<span class="fc" id="L139">      val actualCount=actualData.count()</span>
+
+<span class="pc bpc" id="L141" title="3 of 4 branches missed.">      if(newDay.equals(maxDay) &amp;&amp; last_Month == false){</span>
+<span class="nc" id="L142">        val nextMonth = (processingMonth.toInt + 1).toString</span>
+<span class="nc" id="L143">        val nextMonthDenormalizedDF = denormalizedCommercialDF(ndCwParqPath, ndFactComParqPath, ndPoiDetailPath, infobasePath, processingYear, nextMonth, outputPath)</span>
+<span class="nc" id="L144">          .filter(col(&quot;date&quot;)===processingYear+&quot;-&quot;+processingMonth+&quot;-&quot;+newDay)</span>
+
+<span class="nc" id="L146">        expectedCount = expectedCount + nextMonthDenormalizedDF.count()</span>
+      }
+
+<span class="pc bpc" id="L149" title="1 of 2 branches missed.">      if(!(actualCount==expectedCount))</span>
+      {
+<span class="nc" id="L151">        throw new RuntimeException(</span>
+<span class="nc" id="L152">          s&quot; Commercial =&gt; Count of actual custom-attribute-store:  ${actualCount} is not matching with expected custom-attribute-store count ${expectedCount} for date =&gt; &quot;+processingYear+&quot;-&quot;+processingMonth+&quot;-&quot;+newDay)</span>
+
+      }
+<span class="fc" id="L155">      log.info(s&quot; Commercial =&gt; Count of actual custom-attribute-store:  ${actualCount} is matching with expected custom-attribute-store count ${expectedCount} for date =&gt; &quot;+processingYear+&quot;-&quot;+processingMonth+&quot;-&quot;+newDay)</span>
+    }
+
+  }
+
+  def denormalizedPublicDF (ndCwParqPath: String,
+                            ndFactPubParqPath: String,
+                            infobasePath: String,
+                            processingYear: String,
+                            processingMonth: String,
+                            outputPath: String): DataFrame = {
+
+    //Crosswalk table
+<span class="fc" id="L168">    val ndCwParqData = spark.read.load(ndCwParqPath)</span>
+<span class="fc" id="L169">    ndCwParqData.createOrReplaceTempView(&quot;nd_cw&quot;)</span>
+
+    //Unique Keys
+<span class="fc" id="L172">    val ndUniquekeys = spark.read.load(infobasePath)</span>
+<span class="fc" id="L173">    ndUniquekeys.createOrReplaceTempView(&quot;nd_unique_keys&quot;)</span>
+
+    //load fact data for Public places
+<span class="fc" id="L176">    val ndFactPubByMonth = spark.read.load(ndFactPubParqPath + &quot;year=&quot; + processingYear + &quot;/month=&quot; + processingMonth + &quot;/&quot;)</span>
+<span class="fc" id="L177">    ndFactPubByMonth.createOrReplaceTempView(&quot;nd_fact_pub_month&quot;)</span>
+
+    //create customTimestamp for public places
+<span class="fc" id="L180">    val ndFactPubByMonthTimeStamp = spark.sql(&quot;SELECT timestamp_local, to_timestamp(timestamp_local,'yyyy-MM-dd HH:mm:ss') as custom_timestamp, device_anonymous_id, city, state, zip, public_place_name FROM nd_fact_pub_month&quot;)</span>
+<span class="fc" id="L181">    ndFactPubByMonthTimeStamp.createOrReplaceTempView(&quot;nd_fact_pub_month_detail_timestamp&quot;)</span>
+
+    //join cw and infobase
+<span class="fc" id="L184">    val ndCwUniqueKeys = spark.sql(&quot;SELECT a.minorca_id, b.mbid, b.mbid_value, b.hhid, b.hhid_value FROM nd_cw a inner join nd_unique_keys b ON a.mbid = b.mbid_value&quot;)</span>
+<span class="fc" id="L185">    ndCwUniqueKeys.createOrReplaceTempView(&quot;nd_cw_uniqueKeys&quot;)</span>
+
+    //fact public without duplicates
+<span class="fc" id="L188">    val ndFactPubFilterDup = spark.sql(&quot;select * from (select ROW_NUMBER()  OVER(PARTITION BY device_anonymous_id, timestamp_local, custom_timestamp, city, state, zip, public_place_name ORDER BY timestamp_local) as RowNum,  device_anonymous_id, timestamp_local, custom_timestamp, city, state, zip, public_place_name from nd_fact_pub_month_detail_timestamp) x where RowNum=1&quot;)</span>
+<span class="fc" id="L189">    ndFactPubFilterDup.createOrReplaceTempView(&quot;nd_fact_pub_filter_dup&quot;)</span>
+
+    //join cw infobase and fact public
+<span class="fc" id="L192">    val ndFactPubCwUniqueKeys = spark.sql(&quot;SELECT a.timestamp_local, a.custom_timestamp, a.device_anonymous_id, a.city, a.state, a.zip, a.public_place_name, b.mbid, b.mbid_value, b.hhid, b.hhid_value FROM nd_fact_pub_filter_dup a inner join nd_cw_uniqueKeys b ON (a.device_anonymous_id = minorca_id )&quot;)</span>
+<span class="fc" id="L193">    ndFactPubCwUniqueKeys.createOrReplaceTempView(&quot;nd_fact_pub_cw_unique_keys&quot;)</span>
+
+    //include date in nd public
+<span class="fc" id="L196">    val ndFactPubWithDate = spark.sql(&quot;SELECT timestamp_local, TO_DATE(CAST(UNIX_TIMESTAMP(custom_timestamp,'yyyy-MM-dd') AS TIMESTAMP)) AS date,&quot; +</span>
+      &quot; hour(custom_timestamp) as hour, device_anonymous_id, city, state, zip, public_place_name, mbid, mbid_value, hhid, hhid_value FROM nd_fact_pub_cw_unique_keys&quot;)
+<span class="fc" id="L198">    ndFactPubWithDate.createOrReplaceTempView(&quot;nd_fact_pub_with_date&quot;)</span>
+
+    //Day parts for nd public
+<span class="fc" id="L201">    spark.sql(&quot;SELECT date, timestamp_local, device_anonymous_id, city, state, zip, public_place_name,&quot; +</span>
+<span class="fc" id="L202">      &quot; mbid, mbid_value, hhid, hhid_value, case when hour=0 then '23:00-01:00' else case when hour=1 then '23:00-01:00' else case when hour=2 then '02:00-04:00' else case when hour=3 then '02:00-04:00' else case when hour=4 then '02:00-04:00' else case when hour=5 then '05:00-06:00' else case when hour=6 then '05:00-06:00' else case when hour=7 then '07:00-08:00' else case when hour=8 then '07:00-08:00' else case when hour=9 then '09:00-10:00' else case when hour=10 then '09:00-10:00' else case when hour=11 then '11:00-13:00' else case when hour=12 then '11:00-13:00' else case when hour=13 then '11:00-13:00' else case when hour=14 then '14:00-16:00' else case when hour=15 then '14:00-16:00' else case when hour=16 then '14:00-16:00' else case when hour=17 then '17:00-18:00' else case when hour=18 then '17:00-18:00' else case when hour=19 then '19:00-20:00' else case when hour=20 then '19:00-20:00' else case when hour=21 then '21:00-22:00' else case when hour=22 then '21:00-22:00' else case when hour=23 then '23:00-01:00' else case when hour=24 then '23:00-01:00'  else 'NA' END END END END END END END END END END END END END END END END END END END END END END END END END as daypart FROM nd_fact_pub_with_date&quot;).createOrReplaceTempView(&quot;nd_pub_data_with_dayparts&quot;)</span>
+
+<span class="fc" id="L204">    val dfResultForPublic = spark.sql(&quot;SELECT * FROM nd_pub_data_with_dayparts&quot;)</span>
+
+<span class="fc" id="L206">    val selectColumnsForPublic = Seq(col(&quot;mbid&quot;), col(&quot;mbid_value&quot;),col(&quot;hhid&quot;),col(&quot;hhid_value&quot;),col(&quot;device_anonymous_id&quot;), col(&quot;timestamp_local&quot;).as(&quot;local_timestamp&quot;)</span>
+<span class="fc" id="L207">      ,  col(&quot;date&quot;),col(&quot;city&quot;),</span>
+<span class="fc" id="L208">      col(&quot;state&quot;), col(&quot;zip&quot;), col(&quot;public_place_name&quot;),</span>
+<span class="fc" id="L209">      col(&quot;daypart&quot;))</span>
+
+<span class="fc" id="L211">    val expectedResult=dfResultForPublic.select(selectColumnsForPublic: _*)</span>
+<span class="fc" id="L212">    expectedResult</span>
+  }
+
+  def validateNinthDecimalPublic(ndCwParqPath: String,
+                                 ndFactPubParqPath: String,
+                                 infobasePath: String,
+                                 processingYear: String,
+                                 processingMonth: String,
+                                 outputPath: String,
+                                 startDate: String,
+                                 endDate: String,
+                                 last_Month: Boolean): Unit = {
+
+<span class="fc" id="L225">    val expectedResult = denormalizedPublicDF(ndCwParqPath, ndFactPubParqPath, infobasePath, processingYear, processingMonth, outputPath)</span>
+<span class="fc" id="L226">    val maxDay = UtilsFunction.getDaysInMonth(processingYear,processingMonth)</span>
+
+<span class="fc" id="L228">    val dayRange = (startDate.split(&quot;-&quot;)(2).toInt to endDate.split(&quot;-&quot;)(2).toInt).toArray</span>
+
+<span class="pc bpc" id="L230" title="1 of 2 branches missed.">    for(day &lt;- dayRange)</span>
+    {
+<span class="pc bpc" id="L232" title="1 of 2 branches missed.">      val newDay = (if (day &lt; 10) &quot;0&quot; + day else &quot;&quot; + day);</span>
+<span class="fc" id="L233">      println(s&quot;newDay&quot; + newDay)</span>
+<span class="fc" id="L234">      val filterdDf=expectedResult.filter(col(&quot;date&quot;)===processingYear+&quot;-&quot;+processingMonth+&quot;-&quot;+newDay)</span>
+<span class="fc" id="L235">      var expectedCount=filterdDf.count</span>
+<span class="fc" id="L236">      val actualData=spark.read.load(outputPath+&quot;/date=&quot;+processingYear+&quot;-&quot;+processingMonth+&quot;-&quot;+newDay+&quot;/&quot;)</span>
+<span class="fc" id="L237">      val actualCount=actualData.count()</span>
+
+<span class="pc bpc" id="L239" title="3 of 4 branches missed.">      if(newDay.equals(maxDay) &amp;&amp; last_Month == false){</span>
+<span class="nc" id="L240">        val nextMonth = (processingMonth.toInt + 1).toString</span>
+<span class="nc" id="L241">        val nextMonthDenormalizedDF = denormalizedPublicDF(ndCwParqPath, ndFactPubParqPath, infobasePath, processingYear, nextMonth, outputPath)</span>
+<span class="nc" id="L242">          .filter(col(&quot;date&quot;)===processingYear+&quot;-&quot;+processingMonth+&quot;-&quot;+newDay)</span>
+
+<span class="nc" id="L244">        expectedCount = expectedCount + nextMonthDenormalizedDF.count()</span>
+      }
+
+<span class="pc bpc" id="L247" title="1 of 2 branches missed.">      if(!(actualCount==expectedCount))</span>
+      {
+<span class="nc" id="L249">        throw new RuntimeException(</span>
+<span class="nc" id="L250">          s&quot;Public =&gt; Count of actual custom-attribute-store:  ${actualCount} is not matching with expected custom-attribute-store count ${expectedCount} for date =&gt; &quot;+processingYear+&quot;-&quot;+processingMonth+&quot;-&quot;+newDay)</span>
+      }
+<span class="fc" id="L252">      log.info(s&quot;Public =&gt; Count of actual custom-attribute-store:  ${actualCount} is matching with expected custom-attribute-store count ${expectedCount} for date =&gt; &quot;+processingYear+&quot;-&quot;+processingMonth+&quot;-&quot;+newDay)</span>
+    }
+  }
+
+  def validateNinthdecimal(startDate: String,
+                           endDate: String,
+                           inputPath: String,
+                           outputPath: String
+                          ): Unit = {
+<span class="fc" id="L261">    val ndComDf = spark.read</span>
+<span class="fc" id="L262">      .load(inputPath + &quot;commercial/&quot;)</span>
+<span class="fc" id="L263">      .where(col(&quot;date&quot;)</span>
+<span class="fc" id="L264">        .between(to_date(lit(startDate), &quot;yyyy-MM-dd&quot;), to_date(lit(endDate), &quot;yyyy-MM-dd&quot;)))</span>
+
+<span class="fc" id="L266">    val ndPubDf = spark.read</span>
+<span class="fc" id="L267">      .load(inputPath + &quot;public/&quot;)</span>
+<span class="fc" id="L268">      .where(col(&quot;date&quot;)</span>
+<span class="fc" id="L269">        .between(to_date(lit(startDate), &quot;yyyy-MM-dd&quot;), to_date(lit(endDate), &quot;yyyy-MM-dd&quot;)))</span>
+
+<span class="fc" id="L271">    ndComDf.createOrReplaceTempView(&quot;nd_com&quot;)</span>
+<span class="fc" id="L272">    ndPubDf.createOrReplaceTempView(&quot;nd_pub&quot;)</span>
+
+<span class="fc" id="L274">    val ndCommercial = spark.sql(&quot;select mbid, &quot; +</span>
+      &quot;mbid_value, &quot; +
+      &quot;hhid, &quot; +
+      &quot;hhid_value, &quot; +
+      &quot;device_anonymous_id, &quot; +
+      &quot;local_timestamp, &quot; +
+      &quot;city, &quot; +
+      &quot;state, &quot; +
+      &quot;zip, &quot; +
+      &quot;commercial_business_name as brand, &quot; +
+      &quot;daypart, &quot; +
+      &quot;category, &quot; +
+<span class="fc" id="L286">      &quot;date &quot; +</span>
+      &quot;from nd_com&quot;)
+
+<span class="fc" id="L289">    val ndPublic = spark.sql(&quot;select mbid, &quot; +</span>
+      &quot;mbid_value, &quot; +
+      &quot;hhid, &quot; +
+      &quot;hhid_value, &quot; +
+      &quot;device_anonymous_id, &quot; +
+      &quot;local_timestamp, &quot; +
+      &quot;city, &quot; +
+      &quot;state, &quot; +
+      &quot;zip, &quot; +
+      &quot;public_place_name as brand, &quot; +
+      &quot;daypart, &quot; +
+      &quot;'NA' as category, &quot; +
+<span class="fc" id="L301">      &quot;date &quot; +</span>
+      &quot;from nd_pub&quot;)
+
+<span class="fc" id="L304">    val ndUnion = ndCommercial.union(ndPublic)</span>
+
+<span class="pc bpc" id="L306" title="1 of 2 branches missed.">    val (years, months) = differentYearsMonthsBetweenDates(startDate,endDate)</span>
+
+<span class="fc" id="L308">    println(&quot;Value of years =&gt; &quot;+years.mkString(&quot;,&quot;))</span>
+<span class="fc" id="L309">    println(&quot;Value of months =&gt; &quot;+months.mkString(&quot;,&quot;))</span>
+
+<span class="fc" id="L311">    val start_Day = startDate.split(&quot;-&quot;)(2).toInt</span>
+<span class="fc" id="L312">    val end_Day = endDate.split(&quot;-&quot;)(2).toInt</span>
+
+<span class="pc bpc" id="L314" title="4 of 6 branches missed.">    val days = if(!(startDate.split(&quot;-&quot;)(1) == endDate.split(&quot;-&quot;)(1))){</span>
+<span class="nc" id="L315">      endDate.split(&quot;-&quot;)(2).toInt</span>
+    }else{
+<span class="fc" id="L317">      0</span>
+    }
+
+<span class="pc bpc" id="L320" title="1 of 2 branches missed.">    for(i &lt;- 0 until years.size){</span>
+<span class="pc bpc" id="L321" title="1 of 2 branches missed.">      for(month &lt;- months(i).split(&quot;,&quot;)){</span>
+
+<span class="fc" id="L323">        val maxDays = UtilsFunction.getDaysInMonth(years(i).toString,month)</span>
+<span class="fc" id="L324">        println(&quot;Value of Max Days for Year =&gt; &quot;+years(i).toString+&quot; Month =&gt; &quot;+month+&quot; is =&gt; &quot;+maxDays.toString)</span>
+
+<span class="pc bpc" id="L326" title="6 of 10 branches missed.">        if(years.size == i+1 &amp;&amp; months(i).split(&quot;,&quot;)(months(i).split(&quot;,&quot;).size-1)== month &amp;&amp; months(i).split(&quot;,&quot;).size &gt; 1){</span>
+<span class="nc bnc" id="L327" title="All 2 branches missed.">          for(day &lt;- 1 to days)</span>
+          {
+<span class="nc bnc" id="L329" title="All 2 branches missed.">            val newDay = (if (day &lt; 10) &quot;0&quot; + day else &quot;&quot; + day);</span>
+<span class="nc" id="L330">            println(&quot;#&quot;+newDay+&quot;Last Month --&gt; YES&quot;)</span>
+
+<span class="nc" id="L332">            countCheck(ndUnion,ndComDf,ndPubDf,years(i),month,newDay,outputPath)</span>
+          }
+<span class="pc bpc" id="L334" title="6 of 10 branches missed.">        }else if(i == 0 &amp;&amp; months(i).split(&quot;,&quot;)(0) == month &amp;&amp; end_Day == maxDays){</span>
+<span class="nc bnc" id="L335" title="All 2 branches missed.">          for(day &lt;- start_Day to maxDays)</span>
+          {
+<span class="nc bnc" id="L337" title="All 2 branches missed.">            val newDay = (if (day &lt; 10) &quot;0&quot; + day else &quot;&quot; + day);</span>
+<span class="nc" id="L338">            println(&quot;#&quot;+newDay+&quot;First Month --&gt; YES&quot;)</span>
+<span class="nc" id="L339">            countCheck(ndUnion,ndComDf,ndPubDf,years(i),month,newDay,outputPath)</span>
+          }
+<span class="pc bpc" id="L341" title="2 of 4 branches missed.">        }else if(years.size == 1 &amp;&amp; months(i).split(&quot;,&quot;).size == 1){</span>
+<span class="pc bpc" id="L342" title="1 of 2 branches missed.">          for(day &lt;- start_Day to end_Day)</span>
+          {
+<span class="pc bpc" id="L344" title="1 of 2 branches missed.">            val newDay = (if (day &lt; 10) &quot;0&quot; + day else &quot;&quot; + day);</span>
+<span class="fc" id="L345">            println(&quot;#&quot;+newDay+&quot;Only Month --&gt; YES&quot;)</span>
+<span class="fc" id="L346">            countCheck(ndUnion,ndComDf,ndPubDf,years(i),month,newDay,outputPath)</span>
+          }
+        }
+        else{
+<span class="nc bnc" id="L350" title="All 2 branches missed.">          for(day &lt;- 1 to maxDays)</span>
+          {
+<span class="nc bnc" id="L352" title="All 2 branches missed.">            val newDay = (if (day &lt; 10) &quot;0&quot; + day else &quot;&quot; + day);</span>
+<span class="nc" id="L353">            println(&quot;#&quot;+newDay+&quot;Full Month --&gt; YES&quot;)</span>
+<span class="nc" id="L354">            countCheck(ndUnion,ndComDf,ndPubDf,i,month,newDay,outputPath)</span>
+          }
+        }
+      }
+    }
+
+  }
+
+  def countCheck(union_DF: DataFrame, com_DF: DataFrame, pub_Df: DataFrame, year: Int, month: String, day: String, output_path: String): Unit = {
+
+<span class="fc" id="L364">    println(&quot;Entered function =&gt; countCheck&quot;)</span>
+
+    //val com_Count = com_DF.filter(col(&quot;date&quot;)===year+&quot;-&quot;+month+&quot;-&quot;+day).count()
+    //val pub_Count = pub_Df.filter(col(&quot;date&quot;)===year+&quot;-&quot;+month+&quot;-&quot;+day).count()
+<span class="fc" id="L368">    val union_Count = union_DF.filter(col(&quot;date&quot;)===year+&quot;-&quot;+month+&quot;-&quot;+day).count()</span>
+
+<span class="fc" id="L370">    val expectedCount = union_Count</span>
+
+<span class="fc" id="L372">    val actualCount = spark.read.parquet(output_path+&quot;/date=&quot;+year+&quot;-&quot;+month+&quot;-&quot;+day).count()</span>
+
+<span class="pc bpc" id="L374" title="1 of 2 branches missed.">    if(!(expectedCount == actualCount)){</span>
+<span class="nc" id="L375">      throw new RuntimeException(</span>
+<span class="nc" id="L376">        s&quot;Count of actual custom-attribute-store:  ${actualCount} is not matching with expected custom-attribute-store count ${expectedCount} For Year=&quot;+year+&quot;, Month=&quot;+month+&quot;, day=&quot;+day)</span>
+    }
+<span class="fc" id="L378">    log.info(s&quot;Count of actual custom-attribute-store:  ${actualCount} is matching with expected custom-attribute-store count ${expectedCount} For Year=&quot;+year+&quot;, Month=&quot;+month+&quot;, day=&quot;+day)</span>
+<span class="fc" id="L379">    println(&quot;Exited function =&gt; countCheck&quot;)</span>
+  }
+
+  def differentYearsMonthsBetweenDates(start_Date : String, end_Date : String): (Array[Int],Array[String]) = {
+
+<span class="fc" id="L384">    val date1_Arr = start_Date.split(&quot;-&quot;)</span>
+<span class="fc" id="L385">    val date2_Arr = end_Date.split(&quot;-&quot;)</span>
+
+<span class="pc bpc" id="L387" title="4 of 6 branches missed.">    if(start_Date == end_Date){</span>
+
+<span class="nc" id="L389">      val year = Array(date1_Arr(0).toInt)</span>
+<span class="nc" id="L390">      val month = Array(date1_Arr(1))</span>
+
+<span class="nc" id="L392">      return (year,month)</span>
+<span class="pc bpc" id="L393" title="1 of 2 branches missed.">    }else if(start_Date &lt; end_Date){</span>
+
+<span class="pc bpc" id="L395" title="4 of 6 branches missed.">      if(date1_Arr(0) == date2_Arr(0))</span>
+      {
+<span class="fc" id="L397">        val year = Array(date1_Arr(0).toInt)</span>
+<span class="fc" id="L398">        val diff = date2_Arr(1).toInt - date1_Arr(1).toInt</span>
+<span class="fc" id="L399">        val month = Array.ofDim[String](1)</span>
+<span class="pc bpc" id="L400" title="1 of 2 branches missed.">        if(diff == 0){</span>
+<span class="fc" id="L401">          month(0) = date1_Arr(1)</span>
+        }else{
+
+<span class="nc" id="L404">          val month_Arr_Tmp = Array.ofDim[String](diff+1)</span>
+<span class="nc" id="L405">          for(i &lt;-0 to diff)</span>
+          {
+<span class="nc" id="L407">            month_Arr_Tmp(i) = (date1_Arr(1).toInt + i).toString</span>
+          }
+<span class="nc" id="L409">          month(0) = month_Arr_Tmp.mkString(&quot;,&quot;)</span>
+        }
+<span class="fc" id="L411">        return (year,month)</span>
+      }else{
+<span class="nc" id="L413">        val diff = date2_Arr(0).toInt - date1_Arr(0).toInt</span>
+<span class="nc" id="L414">        val year = Array.ofDim[Int](diff+1)</span>
+<span class="nc" id="L415">        for(i &lt;-0 to diff)</span>
+        {
+<span class="nc" id="L417">          year(i) = date1_Arr(0).toInt + i</span>
+        }
+
+<span class="nc" id="L420">        val month = Array.ofDim[String](diff+1)</span>
+<span class="nc" id="L421">        val maxMonth = 12</span>
+<span class="nc" id="L422">        val minMonth = 1</span>
+
+<span class="nc" id="L424">        for(i &lt;- 0 until year.size){</span>
+<span class="nc bnc" id="L425" title="All 4 branches missed.">          if(i == 0 &amp;&amp; year.size &gt; 1){</span>
+<span class="nc bnc" id="L426" title="All 6 branches missed.">            if(start_Date.split(&quot;-&quot;)(1) == minMonth){</span>
+<span class="nc" id="L427">              month(i) = (minMonth to maxMonth).toArray.mkString(&quot;,&quot;)</span>
+<span class="nc bnc" id="L428" title="All 6 branches missed.">            }else if(start_Date.split(&quot;-&quot;)(1) == maxMonth){</span>
+<span class="nc" id="L429">              month(i) = &quot;12&quot;</span>
+            }else{
+<span class="nc" id="L431">              month(i) = (date1_Arr(1).toInt to maxMonth).toArray.mkString(&quot;,&quot;)</span>
+            }
+<span class="nc bnc" id="L433" title="All 4 branches missed.">          }else if(i &gt; 0 &amp;&amp; i &lt; year.size - 1){</span>
+<span class="nc" id="L434">            month(i) = (minMonth to maxMonth).toArray.mkString(&quot;,&quot;)</span>
+<span class="nc bnc" id="L435" title="All 2 branches missed.">          }else if(i == year.size - 1){</span>
+<span class="nc" id="L436">            month(i) = (minMonth to date2_Arr(1).toInt).toArray.mkString(&quot;,&quot;)</span>
+          }
+        }
+<span class="nc" id="L439">        return (year,month)</span>
+      }
+    }else{
+<span class="nc" id="L442">      println(&quot;Wrong Dates passed&quot;)</span>
+<span class="nc" id="L443">      return (Array(0),Array(&quot;&quot;))</span>
+    }
+
+  }
+
+
+  def validation(ndCwParqPath: String,
+                 infobasePath: String,
+                 processingYear: String,
+                 processingMonth:String,
+                 outputPath: String,
+                 placeType: String,
+                 ndFactComParqPath:String,
+                 poiDetailPath:String,
+                 ndFactPubParqPath:String,
+                 input_Path: String,
+                 start_Date: String,
+                 end_Date: String,
+                 last_Month: Boolean): Unit =
+<span class="fc" id="L462">  {</span>
+<span class="pc bpc" id="L463" title="3 of 6 branches missed.">    if (placeType == &quot;com&quot;)</span>
+    {
+<span class="fc" id="L465">      validateNinthDecimalCommercial(</span>
+<span class="fc" id="L466">        ndCwParqPath,</span>
+<span class="fc" id="L467">        ndFactComParqPath,</span>
+<span class="fc" id="L468">        poiDetailPath,</span>
+<span class="fc" id="L469">        infobasePath,</span>
+<span class="fc" id="L470">        processingYear,</span>
+<span class="fc" id="L471">        processingMonth,</span>
+<span class="fc" id="L472">        outputPath,</span>
+<span class="fc" id="L473">        start_Date,</span>
+<span class="fc" id="L474">        end_Date,</span>
+<span class="fc" id="L475">        last_Month</span>
+      )
+    }
+<span class="pc bpc" id="L478" title="3 of 6 branches missed.">    if (placeType == &quot;pub&quot;)</span>
+    {
+<span class="fc" id="L480">      validateNinthDecimalPublic(</span>
+<span class="fc" id="L481">        ndCwParqPath,</span>
+<span class="fc" id="L482">        ndFactPubParqPath,</span>
+<span class="fc" id="L483">        infobasePath,</span>
+<span class="fc" id="L484">        processingYear,</span>
+<span class="fc" id="L485">        processingMonth,</span>
+<span class="fc" id="L486">        outputPath,</span>
+<span class="fc" id="L487">        start_Date,</span>
+<span class="fc" id="L488">        end_Date,</span>
+<span class="fc" id="L489">        last_Month</span>
+      )
+    }
+<span class="pc bpc" id="L492" title="4 of 8 branches missed.">    if (placeType == &quot;com-pub&quot; &amp;&amp; start_Date &lt;= end_Date){</span>
+<span class="fc" id="L493">      validateNinthdecimal(start_Date,end_Date,input_Path,outputPath)</span>
+    }
+
+  }
+
+  override def run(args: JSONObject): Unit = {
+
+<span class="fc" id="L500">    val ndCwParqPath = args.getString(&quot;ndCwParqPath&quot;)</span>
+<span class="fc" id="L501">    val infobasePath = args.getString(&quot;infobasePath&quot;)</span>
+<span class="fc" id="L502">    val processingYear = args.getString(&quot;processingYear&quot;)</span>
+<span class="fc" id="L503">    val processingMonth = args.getString(&quot;processingMonth&quot;)</span>
+<span class="fc" id="L504">    val outputPath = args.getString(&quot;outputPath&quot;)</span>
+<span class="fc" id="L505">    val placeType = args.getString(&quot;placeType&quot;)</span>
+<span class="fc" id="L506">    val ndFactComParqPath = args.getString(&quot;ndFactComParqPath&quot;)</span>
+<span class="fc" id="L507">    val poiDetailPath = args.getString(&quot;ndPoiDetailPath&quot;)</span>
+<span class="fc" id="L508">    val ndFactPubParqPath = args.getString(&quot;ndFactPubParqPath&quot;)</span>
+<span class="fc" id="L509">    val input_Path = args.getString(&quot;inputPath&quot;)</span>
+<span class="fc" id="L510">    val start_Date = args.getString(&quot;startDate&quot;)</span>
+<span class="fc" id="L511">    val end_Date = args.getString(&quot;endDate&quot;)</span>
+<span class="fc" id="L512">    val last_Month = args.getBoolean(&quot;lastMonth&quot;)</span>
+
+<span class="fc" id="L514">    validation(</span>
+<span class="fc" id="L515">      ndCwParqPath,</span>
+<span class="fc" id="L516">      infobasePath,</span>
+<span class="fc" id="L517">      processingYear,</span>
+<span class="fc" id="L518">      processingMonth,</span>
+<span class="fc" id="L519">      outputPath,</span>
+<span class="fc" id="L520">      placeType,</span>
+<span class="fc" id="L521">      ndFactComParqPath,</span>
+<span class="fc" id="L522">      poiDetailPath,</span>
+<span class="fc" id="L523">      ndFactPubParqPath,</span>
+<span class="fc" id="L524">      input_Path,</span>
+<span class="fc" id="L525">      start_Date,</span>
+<span class="fc" id="L526">      end_Date,</span>
+<span class="fc" id="L527">      last_Month</span>
+    )
+  }
+
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

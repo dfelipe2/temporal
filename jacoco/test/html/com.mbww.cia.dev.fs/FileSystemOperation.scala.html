@@ -1,0 +1,236 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>FileSystemOperation.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.fs</a> &gt; <span class="el_source">FileSystemOperation.scala</span></div><h1>FileSystemOperation.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.fs
+
+import com.amazonaws.{AmazonServiceException, SdkClientException}
+import com.amazonaws.client.builder.AwsClientBuilder
+import com.amazonaws.services.s3.model.{AmazonS3Exception, S3ObjectSummary}
+import com.amazonaws.services.s3.{AmazonS3, AmazonS3ClientBuilder}
+import com.mbww.cia.common.{Module, _}
+import org.json.JSONObject
+import org.slf4j.{Logger, LoggerFactory}
+
+import scala.collection.JavaConversions._
+
+/**
+  * Represents a File system operation type.
+  * @param name
+  */
+sealed abstract class FSOperationType(name: String)
+<span class="nc" id="L18">object FSOperationType {</span>
+  def fromName(name: String): FSOperationType = {
+<span class="nc" id="L20">    name match {</span>
+<span class="nc bnc" id="L21" title="All 2 branches missed.">      case &quot;move&quot; =&gt; Move</span>
+<span class="nc bnc" id="L22" title="All 2 branches missed.">      case &quot;copy&quot; =&gt; Copy</span>
+<span class="nc bnc" id="L23" title="All 2 branches missed.">      case &quot;delete&quot; =&gt; Delete</span>
+<span class="nc" id="L24">      case _ =&gt; throw new IllegalArgumentException(s&quot;$name is not a valid file system operation name.&quot;)</span>
+    }
+  }
+}
+
+/**
+  * Represents a move operation type.
+  */
+<span class="nc" id="L32">case object Move extends FSOperationType(&quot;move&quot;)</span>
+
+/**
+  * Represents a copy operation type.
+  */
+<span class="nc" id="L37">case object Copy extends FSOperationType(&quot;copy&quot;)</span>
+
+/**
+  * Represents a delete operation type.
+  */
+<span class="nc" id="L42">case object Delete extends FSOperationType(&quot;delete&quot;)</span>
+
+/**
+  * File System Operation Parameters
+  *
+  * Represents the different parameters the operation
+  * can have.
+  *
+  * @param opType operation type
+  * @param source string
+  * @param destination string
+  * @param region aws region
+  * @param awsEndpoint aws endpoint
+  */
+<span class="nc bnc" id="L56" title="All 48 branches missed.">case class FileSystemOperationParams(opType: FSOperationType,</span>
+<span class="nc" id="L57">                                     source: String,</span>
+<span class="nc" id="L58">                                     destination: String,</span>
+<span class="nc" id="L59">                                     region: String,</span>
+<span class="nc" id="L60">                                     awsEndpoint: Option[String] = None) {</span>
+
+  def withAwsEndpoint(value: String): FileSystemOperationParams = {
+<span class="nc" id="L63">    value.trim match {</span>
+<span class="nc bnc" id="L64" title="All 2 branches missed.">      case ep if ep.nonEmpty =&gt; this.copy(awsEndpoint = Some(ep))</span>
+<span class="nc" id="L65">      case _ =&gt; this</span>
+    }
+  }
+
+}
+
+/**
+  * File System Operation
+  *
+  * This class is meant to execute
+  * some file system operations (s3)
+  * given some parameters and an
+  * operation type.
+  *
+  */
+<span class="nc" id="L80">class FileSystemOperation() extends Module {</span>
+
+<span class="nc" id="L82">  private var devMode: Boolean = false</span>
+
+  /**
+    * Alternate constructor to enable
+    * special features for development.
+    *
+    * @param devMode boolean
+    */
+  def this(devMode: Boolean) {
+<span class="nc" id="L91">    this()</span>
+<span class="nc" id="L92">    this.devMode = devMode</span>
+  }
+
+<span class="nc" id="L95">  val logger: Logger = LoggerFactory.getLogger(this.getClass)</span>
+
+  private def getAWSClient(region: String, endpoint: Option[String]): AmazonS3 = {
+<span class="nc" id="L98">     endpoint match {</span>
+<span class="nc bnc" id="L99" title="All 2 branches missed.">       case Some(ep) =&gt;</span>
+<span class="nc" id="L100">         val awsep = new AwsClientBuilder.EndpointConfiguration(ep, region)</span>
+<span class="nc" id="L101">         AmazonS3ClientBuilder.standard()</span>
+<span class="nc" id="L102">         .withEndpointConfiguration(awsep)</span>
+<span class="nc" id="L103">         .withPathStyleAccessEnabled(true)</span>
+<span class="nc" id="L104">         .build()</span>
+<span class="nc bnc" id="L105" title="All 2 branches missed.">       case None =&gt;</span>
+<span class="nc" id="L106">         AmazonS3ClientBuilder.standard()</span>
+<span class="nc" id="L107">           .withRegion(region)</span>
+<span class="nc" id="L108">           .build()</span>
+     }
+  }
+
+  private def parseS3Path(value: String): (String, String) = {
+<span class="nc" id="L113">    val regex = &quot;^s3://([^/]+)/(.+)$&quot;.r</span>
+<span class="nc" id="L114">    value match {</span>
+<span class="nc bnc" id="L115" title="All 6 branches missed.">      case regex(bucket, prefix) =&gt; (bucket, prefix)</span>
+    }
+  }
+
+  /**
+    * Copy
+    *
+    * This operation will invoke the copyObject
+    * operation on the aws sdk recursively, and
+    * copy all objects from the specified source
+    * to the specified destination.
+    *
+    * @param params
+    * @return
+    */
+  private def copy(params: FileSystemOperationParams): List[S3ObjectSummary] = {
+<span class="nc" id="L131">    val client = getAWSClient(params.region, params.awsEndpoint)</span>
+<span class="nc bnc" id="L132" title="All 2 branches missed.">    val (sBucket, sPrefix) = parseS3Path(params.source)</span>
+<span class="nc bnc" id="L133" title="All 2 branches missed.">    val (dBucket, dPrefix) = parseS3Path(params.destination)</span>
+
+<span class="nc" id="L135">    logger.info(s&quot;Copying objects from ${params.source} to ${params.destination}&quot;)</span>
+<span class="nc" id="L136">    val objects = client.listObjects(sBucket, sPrefix).getObjectSummaries.toList</span>
+
+<span class="nc bnc" id="L138" title="All 2 branches missed.">    objects.foreach {obj =&gt;</span>
+<span class="nc" id="L139">      try {</span>
+<span class="nc" id="L140">        client.copyObject(sBucket, obj.getKey, dBucket, obj.getKey.replace(sPrefix, dPrefix))</span>
+      } catch {
+        case e: AmazonS3Exception =&gt; logger.warn(s&quot;Exception copying object ${obj.getKey}&quot;, e)
+        case e: SdkClientException =&gt; logger.warn(s&quot;Exception copying object ${obj.getKey}&quot;, e)
+        case e: AmazonServiceException =&gt; logger.warn(s&quot;Exception copying object ${obj.getKey}&quot;, e)
+        case e: Exception =&gt; logger.warn(s&quot;Exception copying object ${obj.getKey}&quot;, e)
+      }
+    }
+<span class="nc" id="L148">    objects</span>
+  }
+
+  /**
+    * Delete
+    *
+    * This operation will invoke the deleteObject
+    * operation on the aws sdk on the specified
+    * source.
+    *
+    * @param params
+    */
+  private def delete(params: FileSystemOperationParams): Unit = {
+
+<span class="nc" id="L162">    val client = getAWSClient(params.region, params.awsEndpoint)</span>
+<span class="nc" id="L163">    logger.info(s&quot;Deleting objects from ${params.source}&quot;)</span>
+
+<span class="nc bnc" id="L165" title="All 2 branches missed.">    val (sBucket, sPrefix) = parseS3Path(params.source)</span>
+
+<span class="nc" id="L167">    val toDelete = client.listObjects(sBucket, sPrefix).getObjectSummaries.toList</span>
+
+<span class="nc bnc" id="L169" title="All 2 branches missed.">    toDelete.foreach {obj =&gt;</span>
+<span class="nc" id="L170">      try {</span>
+<span class="nc" id="L171">        client.deleteObject(sBucket, obj.getKey)</span>
+      } catch {
+        case e: AmazonS3Exception =&gt; logger.warn(s&quot;Exception deleting object ${obj.getKey}&quot;, e)
+        case e: SdkClientException =&gt; logger.warn(s&quot;Exception deleting object ${obj.getKey}&quot;, e)
+        case e: AmazonServiceException =&gt; logger.warn(s&quot;Exception deleting object ${obj.getKey}&quot;, e)
+        case e: Exception =&gt; logger.warn(s&quot;Exception deleting object ${obj.getKey}&quot;, e)
+      }
+    }
+  }
+
+  /**
+    * Move
+    *
+    * S3 does not support a move command, hence
+    * what this method does is to first copy the
+    * data from source to destination, then delete
+    * the original source.
+    *
+    * @param params
+    */
+  private def move(params: FileSystemOperationParams): Unit = {
+<span class="nc" id="L192">    logger.info(&quot;Performing Move operation&quot;)</span>
+<span class="nc" id="L193">    copy(params)</span>
+<span class="nc" id="L194">    delete(params)</span>
+  }
+
+  /**
+    * Process.
+    *
+    * This is the main method for the file system operation class
+    * @param params
+    */
+<span class="nc" id="L203">  private def process(params: FileSystemOperationParams): Unit = {</span>
+<span class="nc" id="L204">    logger.info(&quot;Performing a file system operation.&quot;)</span>
+<span class="nc" id="L205">    params.opType match {</span>
+<span class="nc bnc" id="L206" title="All 2 branches missed.">      case Move =&gt; move(params)</span>
+<span class="nc bnc" id="L207" title="All 2 branches missed.">      case Copy =&gt; copy(params)</span>
+<span class="nc bnc" id="L208" title="All 2 branches missed.">      case Delete =&gt; delete(params)</span>
+    }
+  }
+
+  override def run(args: JSONObject): Unit = {
+<span class="nc" id="L213">    val opType = args.getOrElse[String](&quot;operation&quot;, &quot;&quot;)</span>
+<span class="nc" id="L214">    val source = args.getOrElse[String](&quot;source&quot;, &quot;&quot;)</span>
+<span class="nc" id="L215">    val destination = args.getOrElse[String](&quot;destination&quot;, &quot;&quot;)</span>
+<span class="nc" id="L216">    val region = args.getOrElse[String](&quot;region&quot;, &quot;&quot;)</span>
+
+    //special properties - only for devMode
+<span class="nc bnc" id="L219" title="All 2 branches missed.">    val awsEndpoint = if (devMode)</span>
+<span class="nc" id="L220">      args.getOrElse[String](&quot;aws_endpoint&quot;, &quot;&quot;)</span>
+    else
+<span class="nc" id="L222">      &quot;&quot;</span>
+
+<span class="nc" id="L224">    val parameters = FileSystemOperationParams(</span>
+<span class="nc" id="L225">      FSOperationType.fromName(opType),</span>
+<span class="nc" id="L226">      source,</span>
+<span class="nc" id="L227">      destination,</span>
+<span class="nc" id="L228">      region)</span>
+<span class="nc" id="L229">        .withAwsEndpoint(awsEndpoint)</span>
+
+<span class="nc" id="L231">    process(parameters)</span>
+
+  }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

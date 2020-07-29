@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Runner.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.core</a> &gt; <span class="el_source">Runner.scala</span></div><h1>Runner.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.core
+
+import com.mbww.cia.core.logging.CIALogger.MessageAttribute
+import com.mbww.cia.core.logging.{LocalLogger, SNSLogger}
+import com.mbww.cia.core.pipeline.{Pipeline, PipelineNotificator}
+import org.json.JSONObject
+
+object Runner {
+
+  // This function can throw an exception. Let's fail fast.
+<span class="nc" id="L11">  def run(obj: JSONObject): Unit = {</span>
+
+<span class="nc" id="L13">    val snsLog = SNSLogger.getBuilder().forName(&quot;Runner&quot;).defaultLogger()</span>
+<span class="nc" id="L14">    val localLog = LocalLogger.getBuilder().forName(&quot;Runner&quot;).build()</span>
+<span class="nc" id="L15">    val pipelineId = obj.getString(Pipeline.KEY_ID)</span>
+
+<span class="nc" id="L17">    try {</span>
+<span class="nc" id="L18">      Pipeline</span>
+<span class="nc" id="L19">        .getBuilder()</span>
+<span class="nc" id="L20">        .setContent(obj)</span>
+<span class="nc" id="L21">        .build()</span>
+<span class="nc" id="L22">        .addPipelineListener(new PipelineNotificator(snsLog))</span>
+<span class="nc" id="L23">        .addPipelineListener(new PipelineNotificator(localLog))</span>
+<span class="nc" id="L24">        .run()</span>
+    } catch {
+      case ex: Throwable =&gt;
+<span class="nc" id="L27">        val msg = &quot;Pipeline Failed to Execute&quot;</span>
+<span class="nc" id="L28">        val pipeline = MessageAttribute(&quot;pipeline_id&quot;, pipelineId)</span>
+<span class="nc" id="L29">        val cause = MessageAttribute(&quot;cause&quot;, ex.toString)</span>
+<span class="nc" id="L30">        val stackTrace = MessageAttribute(&quot;stack_trace&quot;, ex.getStackTrace.mkString(&quot;&quot;, &quot;\n&quot;, &quot;\n&quot;))</span>
+<span class="nc" id="L31">        snsLog.error(msg, pipeline, cause, stackTrace)</span>
+<span class="nc" id="L32">        localLog.error(msg, pipeline, cause, stackTrace)</span>
+    }
+  }
+<span class="nc" id="L35">}</span>
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

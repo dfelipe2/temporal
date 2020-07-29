@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DataProviderValidation.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.qa.dataProvider</a> &gt; <span class="el_source">DataProviderValidation.scala</span></div><h1>DataProviderValidation.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.qa.dataProvider
+import java.io.{BufferedReader, FileNotFoundException, InputStreamReader}
+
+import com.amazonaws.services.s3.AmazonS3
+import com.amazonaws.services.s3.model.GetObjectRequest
+import com.mbww.cia.common._
+import com.mbww.cia.qa.utils.{DataProvider, FileData, Setup, UtilsFunction}
+import org.apache.log4j.Logger
+import org.json.JSONObject
+
+<span class="fc" id="L11">class DataProviderValidation extends  Module{</span>
+<span class="fc" id="L12">  private[this] val logger = Logger.getLogger(getClass().getName())</span>
+
+<span class="fc" id="L14">  def headerValidation(awsS3Client: AmazonS3,setup:Setup,dataProviderFilePath:String,delimiter: String = &quot;\t&quot;):Boolean =</span>
+  {
+<span class="nc" id="L16">    try {</span>
+<span class="pc bpc" id="L17" title="29 of 33 branches missed.">      final case class actualDataProviderHeader(dataProvider:String , displayName: String)</span>
+<span class="fc" id="L18">      val expectedValue=DataProvider.DataProviderHeader()</span>
+<span class="fc" id="L19">      var line=&quot;&quot;</span>
+<span class="fc" id="L20">      val s3Object = awsS3Client.getObject(new GetObjectRequest(setup.bucketName, dataProviderFilePath))</span>
+<span class="fc" id="L21">      val reader = new BufferedReader(new InputStreamReader(s3Object.getObjectContent))</span>
+<span class="pc bpc" id="L22" title="1 of 2 branches missed.">      if (!((line = reader.readLine).equals(null))) {</span>
+<span class="fc" id="L23">        val data = line.split(delimiter)</span>
+<span class="pc bpc" id="L24" title="1 of 2 branches missed.">        if(!(expectedValue.productIterator.length == data.length))</span>
+        {
+<span class="nc" id="L26">          logger.info(&quot;########### header length is not correct ,length is  ########### &quot; + data.length)</span>
+<span class="nc" id="L27">          return false</span>
+        }
+<span class="fc" id="L29">        logger.info(&quot;########### header length is  correct ,length is  ########### &quot; + data.length)</span>
+<span class="fc" id="L30">        var actualValue = actualDataProviderHeader(data(0), data(1))</span>
+<span class="pc bpc" id="L31" title="1 of 2 branches missed.">        if (!(actualValue.dataProvider.equals(expectedValue.dataProvider))) {</span>
+<span class="nc" id="L32">          logger.info(&quot;########### header name  dataProvider is not present ########### &quot;)</span>
+<span class="nc" id="L33">          return false</span>
+        }
+<span class="fc" id="L35">        logger.info(&quot;########### header name  dataProvider  is  present ########### &quot;)</span>
+<span class="pc bpc" id="L36" title="1 of 2 branches missed.">        if (!(actualValue.displayName.equals(expectedValue.displayName))) {</span>
+<span class="nc" id="L37">          logger.info(&quot;########### header name  displayName is not present ########### &quot;)</span>
+<span class="nc" id="L38">          return false</span>
+        }
+<span class="fc" id="L40">        logger.info(&quot;########### header name  displayName  is  present ########### &quot;)</span>
+      }
+    }    catch {
+      // Handle exceptions.
+      case exp:FileNotFoundException =&gt;    logger.info(&quot;################### file is not present   &quot; + exp)
+<span class="nc" id="L45">        return false</span>
+      case exp: ArrayIndexOutOfBoundsException =&gt;   logger.info(&quot;################### ArrayIndexOutOfBoundsException  &quot; + exp)
+<span class="nc" id="L47">        return false</span>
+      case exp: NullPointerException =&gt;     logger.info(&quot;null pointer  &quot; + exp)
+<span class="nc" id="L49">        return false</span>
+    }
+<span class="fc" id="L51">    logger.info(&quot;------------------ Data Provider File  Header Validation Pass , All Header are present  --------------------------&quot;)</span>
+<span class="fc" id="L52">    true  }</span>
+
+<span class="fc" id="L54">  def specialCharacterValidation(awsS3Client:AmazonS3,setup:Setup,dataProviderFilePath:String,delimiter: String = &quot;\t&quot;):Boolean =</span>
+  {
+<span class="fc" id="L56">    UtilsFunction.specialCharacterValidation(awsS3Client,setup,dataProviderFilePath)</span>
+  }
+
+<span class="fc" id="L59">  def dataProviderValueValidation(awsS3Client: AmazonS3,setup:Setup,dataProviderFilePath:String,dataSetFilePath:String,delimiter: String = &quot;\t&quot;):Boolean =</span>
+  {
+<span class="nc" id="L61">    try {</span>
+<span class="fc" id="L62">      val dataProviderValue=UtilsFunction.getColumnFromFile(awsS3Client,&quot;s3://&quot; + setup.bucketName +&quot;/&quot; + dataProviderFilePath,0)</span>
+<span class="fc" id="L63">      val datasetValue=UtilsFunction.getColumnFromFile(awsS3Client,&quot;s3://&quot; + setup.bucketName +&quot;/&quot; + dataSetFilePath,0)</span>
+<span class="pc bpc" id="L64" title="1 of 2 branches missed.">      if (!((datasetValue.distinct diff  dataProviderValue ).length ==0))</span>
+      {
+<span class="nc" id="L66">        logger.info(&quot;################### data provider value in data provider file is not correct  &quot; + datasetValue.foreach(println))</span>
+<span class="nc" id="L67">        return false</span>
+      }
+<span class="fc" id="L69">      logger.info(&quot;################### data provider value in data provider file is  correct  &quot;)</span>
+<span class="fc" id="L70">      return true</span>
+    }
+    catch {
+      // Handle exceptions.
+      case exp:FileNotFoundException =&gt;    logger.info(&quot;################### file is not present   &quot; + exp)
+<span class="nc" id="L75">        return false</span>
+      case exp: ArrayIndexOutOfBoundsException =&gt;   logger.info(&quot;################### ArrayIndexOutOfBoundsException  &quot; + exp)
+<span class="nc" id="L77">        return false</span>
+      case exp: NullPointerException =&gt;     logger.info(&quot;null pointer  &quot; + exp)
+<span class="nc" id="L79">        return false</span>
+    }
+  }
+
+<span class="fc" id="L83">  def displayNameIsUnique(awsS3Client: AmazonS3,setup:Setup,dataProviderFilePath:String,delimiter: String = &quot;\t&quot;):Boolean=</span>
+  {
+<span class="nc" id="L85">    try</span>
+      {
+<span class="fc" id="L87">        val displayNameValue=UtilsFunction.getColumnFromFile(awsS3Client,&quot;s3://&quot; + setup.bucketName + &quot;/&quot; + dataProviderFilePath,1)</span>
+<span class="fc" id="L88">        val distinctDisplayNameValue=UtilsFunction.getColumnFromFile(awsS3Client,&quot;s3://&quot; + setup.bucketName + &quot;/&quot; + dataProviderFilePath,1).distinct</span>
+<span class="fc" id="L89">        var differenceDisplayName = displayNameValue diff distinctDisplayNameValue</span>
+<span class="pc bpc" id="L90" title="1 of 2 branches missed.">        if (! (differenceDisplayName.length == 0) ) {</span>
+<span class="nc" id="L91">          logger.info (&quot;############################### distinct display name value are not correct ##### :- &quot; + differenceDisplayName.foreach (println) )</span>
+<span class="nc" id="L92">          return false</span>
+        }
+<span class="fc" id="L94">        logger.info (&quot;############################### distinct display value are  correct ##### :- &quot;)</span>
+<span class="fc" id="L95">        return true</span>
+      }
+    catch {
+      // Handle exceptions.
+      case exp: FileNotFoundException =&gt; logger.info (&quot;################### file is not present   &quot; + exp)
+<span class="nc" id="L100">        return false</span>
+      case exp: ArrayIndexOutOfBoundsException =&gt; logger.info (&quot;################### ArrayIndexOutOfBoundsException  &quot; + exp)
+<span class="nc" id="L102">        return false</span>
+      case exp: NullPointerException =&gt; logger.info (&quot;null pointer  &quot; + exp)
+<span class="nc" id="L104">        return false</span>
+    }
+  }
+<span class="fc" id="L107">  def validation(marketName: String,</span>
+                 bucket: String,
+                 dataProviderName: String,
+                 matchingPartnerName: String,
+<span class="pc bnc" id="L111" title="All 2 branches missed.">                 thread_count: Int = 1,delimiter: String = &quot;\t&quot;): Boolean = {</span>
+<span class="fc" id="L112">    val setup = new Setup(marketName,bucket,dataProviderName,matchingPartnerName)</span>
+<span class="fc" id="L113">    val awsS3Client =setup.awsS3Client</span>
+<span class="fc" id="L114">    val pColumns =  FileData.matchingPartnerGetData(awsS3Client,setup)</span>
+<span class="nc" id="L115">    try{</span>
+<span class="pc bpc" id="L116" title="1 of 2 branches missed.">    pColumns.foreach{matchingPartnerData=&gt;</span>
+<span class="pc bpc" id="L117" title="1 of 2 branches missed.">      if(!(headerValidation(awsS3Client,setup,setup.dataProviderFilePath(matchingPartnerData(1).asInstanceOf[Array[String]](2))))){</span>
+<span class="nc" id="L118">        logger.info (&quot;-----------------headerValidation failed ---------------------&quot;)</span>
+<span class="nc" id="L119">        return false</span>
+      }}
+<span class="pc bpc" id="L121" title="2 of 4 branches missed.">    pColumns.foreach{matchingPartnerData=&gt;if(!(specialCharacterValidation(awsS3Client,setup,setup.dataProviderFilePath(matchingPartnerData(1).asInstanceOf[Array[String]](2))))){</span>
+<span class="nc" id="L122">      logger.info (&quot;-----------------specialCharacterValidation failed ---------------------&quot;)</span>
+<span class="nc" id="L123">      return false</span>
+    }}
+<span class="pc bpc" id="L125" title="2 of 4 branches missed.">   pColumns.foreach{matchingPartnerData=&gt;if(!(displayNameIsUnique(awsS3Client,setup,setup.dataProviderFilePath(matchingPartnerData(1).asInstanceOf[Array[String]](2))))){</span>
+<span class="nc" id="L126">      logger.info (&quot;-----------------displayNameIsUnique failed ---------------------&quot;)</span>
+<span class="nc" id="L127">      return false</span>
+    }}
+<span class="pc bpc" id="L129" title="2 of 4 branches missed.">    pColumns.foreach{matchingPartnerData=&gt;if(!(dataProviderValueValidation(awsS3Client,setup,setup.dataProviderFilePath(matchingPartnerData(1).asInstanceOf[Array[String]](2)),setup.dataSetFilePath(matchingPartnerData(1).asInstanceOf[Array[String]](2))))){</span>
+<span class="nc" id="L130">      logger.info (&quot;-----------------dataProviderValueValidation failed ---------------------&quot;)</span>
+<span class="nc" id="L131">      return false</span>
+    }}
+<span class="fc" id="L133">    return true</span>
+  }
+    catch{
+      case e:ArrayIndexOutOfBoundsException=&gt;return false
+      case  ie:Exception=&gt; return false  }
+
+  }
+  override def run(args: JSONObject): Unit = {
+
+<span class="fc" id="L142">    val marketName = args.getString(&quot;marketName&quot;)</span>
+<span class="fc" id="L143">    val bucket = args.getString(&quot;bucket&quot;)</span>
+<span class="fc" id="L144">    val dataProviderName = args.getString(&quot;dataProviderName&quot;)</span>
+<span class="fc" id="L145">    val matchingPartnerName = args.getString(&quot;matchingPartnerName&quot;)</span>
+<span class="fc" id="L146">    val thread_count = args.getOrElse[Int](&quot;thread_count&quot;, 1)</span>
+<span class="fc" id="L147">    validation(</span>
+<span class="fc" id="L148">      marketName,</span>
+<span class="fc" id="L149">      bucket,</span>
+<span class="fc" id="L150">      dataProviderName,</span>
+<span class="fc" id="L151">      matchingPartnerName,</span>
+<span class="fc" id="L152">      thread_count)</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>FusionCorrespondanceValidation.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.qa.fusionCorrespondance</a> &gt; <span class="el_source">FusionCorrespondanceValidation.scala</span></div><h1>FusionCorrespondanceValidation.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.qa.fusionCorrespondance
+
+import org.apache.log4j.{Level, Logger}
+import org.json.JSONObject
+import org.slf4j.LoggerFactory
+import com.mbww.cia.common.Spark.spark
+import com.mbww.cia.common.Module
+import org.apache.spark.sql.DataFrame
+import scala.util.Try
+import org.apache.spark.sql.functions._
+
+<span class="fc" id="L12">class FusionCorrespondanceValidation extends Module {</span>
+
+<span class="pc" id="L14">  val logger = LoggerFactory.getLogger(&quot;CIA Pipeline - FusionCorrespondanceValidation&quot;)</span>
+<span class="fc" id="L15">  Logger.getLogger(&quot;org&quot;).setLevel(Level.ERROR)</span>
+<span class="fc" id="L16">  Logger.getLogger(&quot;org&quot;).setLevel(Level.WARN)</span>
+
+<span class="fc" id="L18">  def hasColumn(df: DataFrame, path: String): Boolean = Try(df(path)).isSuccess</span>
+
+  //This Function is for Fusion Uk data validation
+  def UkValidation(inputFact: String, inputDim: String, uniquePath: String, outputPath: String) :Boolean = {
+
+<span class="fc" id="L23">    val input_Df1 = spark.read.parquet(inputFact)</span>
+<span class="fc" id="L24">    val input_Df2 = spark.read.parquet(inputDim)</span>
+<span class="fc" id="L25">    val unique_DF = spark.read.parquet(uniquePath)</span>
+<span class="fc" id="L26">    val output_Df = spark.read.parquet(outputPath)</span>
+
+<span class="fc" id="L28">    val checkColFact= hasColumn(input_Df1,&quot;customer_id&quot;)</span>
+<span class="fc" id="L29">    val checkColDim= hasColumn(input_Df2,&quot;customer_id&quot;)</span>
+<span class="pc bpc" id="L30" title="2 of 4 branches missed.">    if(checkColFact &amp;&amp; checkColDim ){</span>
+<span class="fc" id="L31">      println(&quot;Column Customer_id Found&quot;)</span>
+    }
+    else{
+<span class="nc" id="L34">      throw new RuntimeException(&quot;Column Customer_id not found&quot;)</span>
+    }
+
+<span class="fc" id="L37">    val input_Join = input_Df1.join(input_Df2,input_Df1(&quot;customer_id&quot;)=== input_Df2(&quot;customer_id&quot;))</span>
+<span class="fc" id="L38">    val inputCol = input_Join.select(&quot;mbid_v2&quot;,&quot;Imbid&quot;)</span>
+<span class="fc" id="L39">    val uniqueFinal_Df = inputCol.join(unique_DF,inputCol(&quot;mbid_v2&quot;)=== unique_DF(&quot;stringId&quot;))</span>
+<span class="fc" id="L40">    val FinalOutput = uniqueFinal_Df.select(&quot;mbid_v2&quot;,&quot;Imbid&quot;,&quot;numericId&quot;)</span>
+<span class="fc" id="L41">    val FinalOutputOrder = FinalOutput.orderBy(asc(&quot;numericId&quot;))</span>
+<span class="fc" id="L42">    val outputOrder= output_Df.orderBy(asc(&quot;numericId&quot;))</span>
+<span class="fc" id="L43">    val diff =FinalOutputOrder.except(outputOrder).union(outputOrder.except(FinalOutputOrder))</span>
+<span class="pc bpc" id="L44" title="1 of 2 branches missed.">    if(output_Df.count() == FinalOutput.count()){</span>
+<span class="fc" id="L45">      println(&quot;Count matched&quot;)</span>
+    }else{
+<span class="nc" id="L47">      throw new RuntimeException(&quot;Output and FinalOutput count didn't match&quot;)</span>
+    }
+<span class="pc bpc" id="L49" title="1 of 2 branches missed.">    if(diff.count() == 0){</span>
+<span class="fc" id="L50">      println(&quot;Data matched&quot;)</span>
+    }else{
+<span class="nc" id="L52">      throw new RuntimeException(&quot;Output and FinalOutput Data didn't match&quot;)</span>
+    }
+<span class="fc" id="L54">    true</span>
+  }
+
+  //This Function is for Fusion Us data validation
+  def USValidation(inputFact: String,uniquePath: String, outputPath: String) :Boolean = {
+
+<span class="fc" id="L60">    val input_Df1 = spark.read.parquet(inputFact)</span>
+<span class="fc" id="L61">    val unique_DF = spark.read.parquet(uniquePath)</span>
+<span class="fc" id="L62">    val output_Df = spark.read.parquet(outputPath)</span>
+
+<span class="fc" id="L64">    val inputJoin = input_Df1.join(unique_DF,input_Df1(&quot;mbid_v2&quot;)===unique_DF(&quot;stringId&quot;))</span>
+<span class="fc" id="L65">    val FinalOutput = inputJoin.select(&quot;mbid_v2&quot;,&quot;Imbid&quot;,&quot;numericId&quot;)</span>
+<span class="pc bpc" id="L66" title="1 of 2 branches missed.">    if(output_Df.count() == FinalOutput.count()){</span>
+<span class="fc" id="L67">      println(&quot;Count matched&quot;)</span>
+    }else{
+<span class="nc" id="L69">      throw new RuntimeException(&quot;Output and FinalOutput count didn't match&quot;)</span>
+    }
+
+<span class="fc" id="L72">    val finalOutputOrder = FinalOutput.orderBy(asc(&quot;numericId&quot;))</span>
+<span class="fc" id="L73">    val outputOrder = output_Df.orderBy(asc(&quot;numericId&quot;))</span>
+<span class="fc" id="L74">    val diff =finalOutputOrder.except(outputOrder).union(outputOrder.except(finalOutputOrder))</span>
+<span class="pc bpc" id="L75" title="1 of 2 branches missed.">    if(diff.count() == 0){</span>
+<span class="fc" id="L76">      println(&quot;Data matched&quot;)</span>
+    }else{
+<span class="nc" id="L78">      throw new RuntimeException(&quot;Output and FinalOutput Data didn't match&quot;)</span>
+    }
+<span class="fc" id="L80">    true</span>
+  }
+
+<span class="fc" id="L83">  override def run(args: JSONObject): Unit = {</span>
+
+<span class="fc" id="L85">    val marketName = args.getString(&quot;marketName&quot;)</span>
+<span class="fc" id="L86">    val inputFact = args.getString(&quot;input_fact&quot;)</span>
+<span class="fc" id="L87">    val inputDim = args.getString(&quot;input_dim&quot;)</span>
+<span class="fc" id="L88">    val uniquePath = args.getString(&quot;unique_keys_path&quot;)</span>
+<span class="fc" id="L89">    val outputPath = args.getString(&quot;output_path&quot;)</span>
+
+<span class="pc bpc" id="L91" title="3 of 6 branches missed.">    if(marketName==&quot;UK&quot;){</span>
+<span class="fc" id="L92">     UkValidation(inputFact,inputDim,uniquePath,outputPath)</span>
+    }
+<span class="pc bpc" id="L94" title="4 of 6 branches missed.">    else if(marketName==&quot;US&quot;){</span>
+<span class="fc" id="L95">      USValidation(inputFact,uniquePath,outputPath)</span>
+
+    }
+    else{
+<span class="nc" id="L99">      throw new RuntimeException(&quot;-----------------fusion correspondence File validation failed ---------------------&quot;)</span>
+    }
+
+
+  }
+
+  }
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

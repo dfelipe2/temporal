@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CONSTANTS.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.qa.utils</a> &gt; <span class="el_source">CONSTANTS.scala</span></div><h1>CONSTANTS.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.qa.utils
+
+object MatchingPartner {
+<span class="pc bpc" id="L4" title="47 of 53 branches missed.">  final case class MATCHINGPARTNERHEADER(matchingPartner:String=&quot;Matching Partner&quot;, displayName: String=&quot;Display Name&quot;, taxonomyPath:String=&quot;Taxonomy Path&quot;, bitmapPath:String=&quot;Bitmap Path&quot;, customAttributePath:String=&quot;Custom Attribute Path&quot;,mappingPath:String=&quot;Mapping Path&quot;)</span>
+<span class="fc" id="L5">  val ACXIOMDISPLAYNAME=&quot;Acxiom&quot;</span>
+<span class="fc" id="L6">  val EXPERIANDISPLAYNAME=&quot;Experian&quot;</span>
+<span class="fc" id="L7">  val MATCHINGPARTNERFILEPATH=&quot;taxonomy-store/matching_partner.tsv&quot;</span>
+<span class="fc" id="L8">  val DELIMITER=&quot;\t&quot;</span>
+}
+
+<span class="fc" id="L11">object DataSetFile{</span>
+<span class="pc bpc" id="L12" title="95 of 109 branches missed.">  final case class DataSetHeader(dataProvider:String=&quot;Data Provider&quot;, dataSource:String=&quot;Data Source&quot;, displayName: String=&quot;Display Name&quot;,dataSetType:String=&quot;Dataset Type&quot;,bitmapRootPath:String=&quot;Data Source Bitmap Root Path&quot;,customAttributeRootPath:String=&quot;Data Source Custom Attribute Root Path&quot;, taxonomyRootPath:String=&quot;Data Source Taxonomy Root Path&quot;, timeLine:String=&quot;TimeLine&quot;, version:String=&quot;Version&quot;, minorversion:String=&quot;Minor Version&quot;,mbidBitmapRootFolder:String=&quot;MBID Bitmap Root Folder&quot;, hhidBitmapRootFolder:String=&quot;HHID Bitmap Root Folder&quot;, displayFile:String=&quot;Dataset Display File&quot;,bitmapFile:String=&quot;Dataset Bitmap File&quot;)</span>
+
+}
+
+<span class="nc" id="L16">object BitmapFile</span>
+{
+<span class="nc bnc" id="L18" title="All 53 branches missed.">  final case class BitMapHeader(attributeId:String=&quot;Attribute Id&quot;, bitmapType: String=&quot;Bitmap Type&quot;, mbidBitmapPath:String=&quot;MBID Bitmap Path&quot;, mbidCount:String=&quot;MBID Count&quot;, hhidBitmapPath:String=&quot;HHID Bitmap Path&quot;, hhidCount:String=&quot;HHID Count&quot;)</span>
+}
+
+<span class="nc" id="L21">object DisplayFile</span>
+{
+<span class="nc bnc" id="L23" title="All 25 branches missed.">  final case class DisplayFileHeader(attributeId:String=&quot;Attribute Id&quot;, displayName: String=&quot;Display Name&quot;)</span>
+}
+
+<span class="nc" id="L26">object ColumnDescriptorFile</span>
+{
+<span class="nc bnc" id="L28" title="All 25 branches missed.">  final case class ColumnDescriptoreHeader(columnName:String=&quot;Column Name&quot;, displayName: String=&quot;Display Name&quot;)</span>
+}
+
+<span class="nc" id="L31">object DescriptorFile</span>
+{
+<span class="nc bnc" id="L33" title="All 25 branches missed.">  final case class DescriptorFileHeader(node:String=&quot;Node&quot;, description: String=&quot;Description&quot;)</span>
+}
+
+<span class="nc" id="L36">object DataProvider</span>
+{
+<span class="pc bpc" id="L38" title="23 of 25 branches missed.">  final case class DataProviderHeader(dataProvider:String=&quot;Data Provider&quot;, displayName: String=&quot;Display Name&quot;)</span>
+<span class="nc" id="L39">  val DISPLAYNAME_US=&quot;Acxiom_MB Data - Acxiom Infobase,CS - Schwab_Custom Segments - Schwab,Experian_MB Data - Acxiom Infobase,High Value Audiences (HVAs)_MB Data - Modeled Acxiom Infobase,CRM Data_CRM Data,Comscore_Digital Behavior - comScore,Simmons_Behavioral Data - Simmons Fusion,DCM - BMW_Digital Campaign Data - DCM,CS - Microsoft_Custom Segments - Microsoft,CS - Shark Ninja_Custom Segments - Shark Ninja,CS - Quicken Loans_Custom Segments - Quicken Loans,CS - Dunkin Donuts_Custom Segments - Dunkin Donuts,CS - Exxon Mobile_Custom Segments - Exxon Mobile,CS - Coca Cola_Custom Segments - Coca Cola,CS - Hersheys_Custom Segments - Hersheys,Experian_MB Data,Simmons_Behavioral Data,Comscore_Digital Behavior&quot;</span>
+<span class="nc" id="L40">  val DISPLAYNAME_UK=&quot;Acxiom_MB Data - Acxiom Infobase,Custom Segments_Custom Segments,HVA_MB Data - Acxiom Infobase Audiences&quot;</span>
+}
+
+<span class="nc" id="L43">object ACL</span>
+{
+<span class="nc bnc" id="L45" title="All 25 branches missed.">  final case class ACLFileHeader(advertiser_id:String=&quot;advertiser_id&quot;, advertiser_name: String=&quot;advertiser_name&quot;)</span>
+<span class="nc" id="L46">  val ACLDATA=&quot;CRM Data_AA-2017-10-08680,CS - Microsoft_AA-2016-7-05628,CS - Shark Ninja_AA-2017-12-13056,CS - Quicken Loans_AA-2018-3-16654,DCM - BMW_AA-2011-2-00508,DCM - BMW_AA-2011-1-00190,DCM - BMW_AA-2010-4-00199,CS - Dunkin Donuts_AA-2018-4-09132,CS - Dunkin Donuts_AA-2018-4-18070,CS - Dunkin Donuts_AA-2017-8-10216&quot;</span>
+}
+
+<span class="nc" id="L49">object IDMapping</span>
+{
+<span class="nc bnc" id="L51" title="All 25 branches missed.">  final case class IDMappingFileHeader(idType:String=&quot;ID Type&quot;, path: String=&quot;Path&quot;)</span>
+
+}
+<span class="nc" id="L54">object MetaDataFile{</span>
+<span class="pc bpc" id="L55" title="83 of 95 branches missed.">  final case class MetaDataHeader(dataProvider:String=&quot;Data Provider&quot;, dataSource:String=&quot;Data Source&quot;, displayName: String=&quot;Display Name&quot;,dataSetType:String=&quot;Dataset Type&quot;,metaDataSourceRootPath:String=&quot;Metadata Source Root Path&quot;,taxonomyRootPath:String=&quot;Data Source Taxonomy Root Path&quot;, timeLine:String=&quot;TimeLine&quot;,previousVersion:String=&quot;Previous Version&quot;, currentVersion:String=&quot;Current Version&quot;, minorversion:String=&quot;Minor Version&quot;,displayFile:String=&quot;Dataset Display File&quot;,datasetMetaFile:String=&quot;Dataset Metadata File&quot;)</span>
+
+<span class="nc" id="L57">}</span>
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>LiverampProfileReport.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.profile.reports</a> &gt; <span class="el_source">LiverampProfileReport.scala</span></div><h1>LiverampProfileReport.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.profile.reports
+
+import com.mbww.cia.common.{Constants, Module}
+import com.mbww.cia.common.Spark._
+import com.mbww.cia.core.exception.AtributesMissingException
+import org.apache.spark.sql.SaveMode
+import org.apache.spark.sql.functions.{col, lower}
+import org.json.JSONObject
+
+<span class="nc" id="L10">class LiverampProfileReport extends Module {</span>
+
+
+  def generate(
+                infobaseLiverampPath: String,
+                liverampInputPath: String,
+                desiredAttributesPath: String,
+                outputPath: String,
+                displayPath: String
+
+              ): Unit = {
+
+<span class="nc" id="L22">    val infobaseLiveramp = spark.read.load(infobaseLiverampPath)</span>
+<span class="nc" id="L23">    val liverampInput = spark.read.load(liverampInputPath)</span>
+<span class="nc" id="L24">    val desiredAttributes = spark.read.option(&quot;header&quot;, &quot;true&quot;).csv(desiredAttributesPath)</span>
+<span class="nc" id="L25">    val displayNames = spark.read.option(&quot;header&quot;, &quot;true&quot;).option(&quot;delimiter&quot;, &quot;\t&quot;)</span>
+<span class="nc" id="L26">      .format(Constants.CSV_FORMAT_SPEC).load(displayPath)</span>
+<span class="nc" id="L27">    val countDesired = desiredAttributes.count()</span>
+<span class="nc" id="L28">    val countJoin = displayNames.join(desiredAttributes, lower(displayNames(&quot;Attribute Id&quot;)) === lower(desiredAttributes(&quot;ATTRIBUTE_ID&quot;)), &quot;inner&quot;).count()</span>
+<span class="nc bnc" id="L29" title="All 2 branches missed.">    if (countDesired != countJoin) {</span>
+<span class="nc" id="L30">      throw AtributesMissingException(</span>
+<span class="nc" id="L31">        s&quot;some attributes are missing on the display file  &quot;)</span>
+    }
+<span class="nc" id="L33">    val desiredWrite =</span>
+<span class="nc" id="L34">      liverampInput</span>
+<span class="nc" id="L35">        .join(infobaseLiveramp, liverampInput.col(&quot;pelid&quot;) === infobaseLiveramp.col(&quot;stringId&quot;), &quot;inner&quot;)</span>
+<span class="nc" id="L36">        .drop(&quot;stringId&quot;)</span>
+<span class="nc" id="L37">        .drop(&quot;pelid&quot;)</span>
+
+<span class="nc bnc" id="L39" title="All 42 branches missed.">    case class OutputColumn(inputColName: String, value: String, outputColName: String)</span>
+
+<span class="nc bnc" id="L41" title="All 2 branches missed.">    val outputColumns = desiredAttributes.collect().map(_.getString(0)).map { column =&gt;</span>
+<span class="nc" id="L42">      val parts = column.split(&quot;_&quot;)</span>
+<span class="nc" id="L43">      val inputCol = parts.slice(0, parts.length - 1).mkString(&quot;_&quot;)</span>
+<span class="nc" id="L44">      val value = parts.last</span>
+<span class="nc" id="L45">      val outputCol = column.toLowerCase()</span>
+<span class="nc" id="L46">      OutputColumn(inputCol, value, outputCol)</span>
+    }
+
+    import org.apache.spark.sql.functions._
+
+<span class="nc" id="L51">    val caseCols = outputColumns.map { outputSpec =&gt;</span>
+<span class="nc" id="L52">      when(col(outputSpec.inputColName) === lit(outputSpec.value), lit(1.toByte)).otherwise(lit(0.toByte)).as(outputSpec.outputColName)</span>
+<span class="nc" id="L53">    }.toSeq</span>
+<span class="nc" id="L54">    val selectColumns = Seq(col(&quot;numericId&quot;).cast(&quot;bigint&quot;).as(&quot;numericId&quot;)) ++ caseCols</span>
+<span class="nc" id="L55">    val result = desiredWrite.select(selectColumns: _*)</span>
+<span class="nc" id="L56">    result.write.mode(SaveMode.Overwrite).save(outputPath)</span>
+
+  }
+
+  override def run(args: JSONObject): Unit = {
+
+<span class="nc" id="L62">    val infobaseLiverampPath = args.getString(&quot;infobase_path&quot;)</span>
+<span class="nc" id="L63">    val liverampInputPath = args.getString(&quot;liveramp_input_path&quot;)</span>
+<span class="nc" id="L64">    val desiredAttributesPath = args.getString(&quot;desired_Atributes_path&quot;)</span>
+<span class="nc" id="L65">    val outputPath = args.getString(&quot;output_path&quot;)</span>
+<span class="nc" id="L66">    val displayPath = args.getString(&quot;display_path&quot;)</span>
+
+<span class="nc" id="L68">    generate(</span>
+<span class="nc" id="L69">      infobaseLiverampPath,</span>
+<span class="nc" id="L70">      liverampInputPath,</span>
+<span class="nc" id="L71">      desiredAttributesPath,</span>
+<span class="nc" id="L72">      outputPath,</span>
+<span class="nc" id="L73">      displayPath</span>
+    )
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

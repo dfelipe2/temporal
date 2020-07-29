@@ -1,0 +1,261 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Ninthdecimal.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.denormalizer</a> &gt; <span class="el_source">Ninthdecimal.scala</span></div><h1>Ninthdecimal.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.denormalizer
+
+import com.mbww.cia.common.{Module, _}
+import com.mbww.cia.common.Spark.spark
+import org.apache.spark.sql.SaveMode
+import org.apache.spark.sql.functions._
+import org.json.JSONObject
+import com.mbww.cia.common.utility.Tools.toProperCase
+
+<span class="fc" id="L10">class Ninthdecimal extends Module {</span>
+
+
+  def generateNinthdecimaldCommercial(ndCwParqPath: String,
+                                      ndFactComParqPath: String,
+                                      ndPoiDetailPath: String,
+                                      infobasePath: String,
+                                      processingYear: String,
+                                      processingMonths: Seq[String],
+                                      outputPath: String): Unit = {
+
+    //Crosswalk table
+<span class="fc" id="L22">    val ndCwParqData = spark.read.load(ndCwParqPath)</span>
+<span class="fc" id="L23">    ndCwParqData.createOrReplaceTempView(&quot;nd_cw&quot;)</span>
+
+    //Dimensions
+<span class="fc" id="L26">    val ndPoiDetailData = spark.read.load(ndPoiDetailPath)</span>
+<span class="fc" id="L27">    ndPoiDetailData.createOrReplaceTempView(&quot;nd_poi_detail&quot;)</span>
+
+    //Unique Keys
+<span class="fc" id="L30">    val ndUniquekeys = spark.read.load(infobasePath)</span>
+<span class="fc" id="L31">    ndUniquekeys.createOrReplaceTempView(&quot;nd_unique_keys&quot;)</span>
+
+<span class="fc" id="L33">    spark.udf.register(&quot;toProperCase&quot;, toProperCase)</span>
+
+<span class="fc" id="L35">    for (month &lt;- processingMonths) {</span>
+
+      //load fact data for Commercial places
+<span class="fc" id="L38">      val ndFactComByMonth = spark.read.load(ndFactComParqPath + &quot;year=&quot; + processingYear + &quot;/month=&quot; + month + &quot;/&quot;)</span>
+<span class="fc" id="L39">      ndFactComByMonth.createOrReplaceTempView(&quot;nd_fact_com_month&quot;)</span>
+
+      //join fact commercial with poi details
+<span class="fc" id="L42">      val ndFactComByMonthDetail = spark.sql(&quot;SELECT a.device_anonymous_id, a.timestamp_local, a.commercial_unique_id, b.commercial_business_name, b.commercial_chain_id, b.commercial_chain_name, b.categoryname, b.city, b.state, b.zip FROM nd_fact_com_month a inner join nd_poi_detail b ON a.commercial_unique_id = b.commercial_unique_id&quot;)</span>
+<span class="fc" id="L43">      ndFactComByMonthDetail.createOrReplaceTempView(&quot;nd_fact_com_month_detail&quot;)</span>
+
+      //create customTimestamp for commercial places
+<span class="fc" id="L46">      val ndFactComByMonthDetailTimestamp = spark.sql(&quot;SELECT timestamp_local, to_timestamp(timestamp_local,'yyyy-MM-dd HH:mm:ss') as custom_timestamp, device_anonymous_id, commercial_unique_id, commercial_business_name, commercial_chain_id, commercial_chain_name, categoryname, city, state, zip FROM nd_fact_com_month_detail&quot;)</span>
+<span class="fc" id="L47">      ndFactComByMonthDetailTimestamp.createOrReplaceTempView(&quot;nd_fact_com_month_detail_timestamp&quot;)</span>
+
+      //join cw and infobase
+<span class="fc" id="L50">      val ndCwUniqueKeys = spark.sql(&quot;SELECT a.minorca_id, b.mbid, b.mbid_value, b.hhid, b.hhid_value FROM nd_cw a inner join nd_unique_keys b ON a.mbid = b.mbid_value&quot;)</span>
+<span class="fc" id="L51">      ndCwUniqueKeys.createOrReplaceTempView(&quot;nd_cw_uniqueKeys&quot;)</span>
+
+      //fact commercial without duplicates
+<span class="fc" id="L54">      val ndFactComFilterDup = spark.sql(&quot;select * from (select ROW_NUMBER()  OVER(PARTITION BY device_anonymous_id, timestamp_local, custom_timestamp, commercial_unique_id, commercial_business_name, commercial_chain_id, commercial_chain_name, categoryname, city, state, zip ORDER BY timestamp_local) as RowNum,  device_anonymous_id, timestamp_local, custom_timestamp, commercial_unique_id, commercial_business_name, commercial_chain_id, commercial_chain_name, categoryname, city, state, zip  from nd_fact_com_month_detail_timestamp) x where RowNum=1&quot;)</span>
+<span class="fc" id="L55">      ndFactComFilterDup.createOrReplaceTempView(&quot;nd_fact_com_filter_dup&quot;)</span>
+
+      //join cw infobase and fact commercial
+<span class="fc" id="L58">      val ndFactComCwUniqueKeys = spark.sql(&quot;SELECT a.timestamp_local, a.custom_timestamp, a.device_anonymous_id, a.commercial_unique_id, a.commercial_business_name, a.commercial_chain_id, a.commercial_chain_name, a.categoryname, a.city, a.state, a.zip, b.mbid, b.mbid_value, b.hhid, b.hhid_value FROM nd_fact_com_filter_dup a inner join nd_cw_uniqueKeys b ON (a.device_anonymous_id = b.minorca_id)&quot;)</span>
+<span class="fc" id="L59">      ndFactComCwUniqueKeys.createOrReplaceTempView(&quot;nd_fact_com_cw_unique_keys&quot;)</span>
+
+      //include date in nd commercial
+<span class="fc" id="L62">      val ndFactComWithDate = spark.sql(&quot;SELECT timestamp_local, TO_DATE(CAST(UNIX_TIMESTAMP(custom_timestamp,'yyyy-MM-dd') AS TIMESTAMP)) AS date,&quot; +</span>
+        &quot; hour(custom_timestamp) as hour, device_anonymous_id, commercial_unique_id, commercial_business_name, commercial_chain_id, commercial_chain_name, categoryname, city, state, zip, mbid, mbid_value, hhid, hhid_value FROM nd_fact_com_cw_unique_keys&quot;)
+<span class="fc" id="L64">      ndFactComWithDate.createOrReplaceTempView(&quot;nd_fact_com_with_date&quot;)</span>
+
+      //Day parts for nd commercial
+<span class="fc" id="L67">      spark.sql(&quot;SELECT date, timestamp_local, device_anonymous_id, commercial_unique_id, toProperCase(commercial_business_name) as commercial_business_name, commercial_chain_id, commercial_chain_name, toProperCase(categoryname) as categoryname, toProperCase(city) as city, state, zip,&quot; +</span>
+<span class="fc" id="L68">        &quot; mbid, mbid_value, hhid, hhid_value, case when hour=0 then '23:00-01:00' else case when hour=1 then '23:00-01:00' else case when hour=2 then '02:00-04:00' else case when hour=3 then '02:00-04:00' else case when hour=4 then '02:00-04:00' else case when hour=5 then '05:00-06:00' else case when hour=6 then '05:00-06:00' else case when hour=7 then '07:00-08:00' else case when hour=8 then '07:00-08:00' else case when hour=9 then '09:00-10:00' else case when hour=10 then '09:00-10:00' else case when hour=11 then '11:00-13:00' else case when hour=12 then '11:00-13:00' else case when hour=13 then '11:00-13:00' else case when hour=14 then '14:00-16:00' else case when hour=15 then '14:00-16:00' else case when hour=16 then '14:00-16:00' else case when hour=17 then '17:00-18:00' else case when hour=18 then '17:00-18:00' else case when hour=19 then '19:00-20:00' else case when hour=20 then '19:00-20:00' else case when hour=21 then '21:00-22:00' else case when hour=22 then '21:00-22:00' else case when hour=23 then '23:00-01:00' else case when hour=24 then '23:00-01:00'  else 'NA' END END END END END END END END END END END END END END END END END END END END END END END END END as daypart FROM nd_fact_com_with_date&quot;).createOrReplaceTempView(&quot;nd_com_data_with_dayparts&quot;)</span>
+
+<span class="fc" id="L70">      val dfResultForCommercial = spark.sql(&quot;SELECT * FROM nd_com_data_with_dayparts&quot;)</span>
+
+<span class="fc" id="L72">      val selectColumnsForCommercial = Seq(col(&quot;mbid&quot;), col(&quot;mbid_value&quot;), col(&quot;hhid&quot;), col(&quot;hhid_value&quot;), col(&quot;device_anonymous_id&quot;), col(&quot;timestamp_local&quot;).as(&quot;local_timestamp&quot;)</span>
+<span class="fc" id="L73">        , col(&quot;date&quot;), col(&quot;city&quot;),</span>
+<span class="fc" id="L74">        col(&quot;state&quot;), col(&quot;zip&quot;), col(&quot;commercial_unique_id&quot;),</span>
+<span class="fc" id="L75">        col(&quot;commercial_business_name&quot;), col(&quot;commercial_chain_name&quot;),</span>
+<span class="fc" id="L76">        col(&quot;daypart&quot;), col(&quot;categoryname&quot;).as(&quot;category&quot;))</span>
+
+<span class="fc" id="L78">      val partitionColumnsForCommercial = List(&quot;date&quot;)</span>
+
+<span class="fc" id="L80">      dfResultForCommercial</span>
+<span class="fc" id="L81">        .select(selectColumnsForCommercial: _*)</span>
+<span class="fc" id="L82">        .write.mode(SaveMode.Append)</span>
+<span class="fc" id="L83">        .partitionBy(partitionColumnsForCommercial: _*)</span>
+<span class="fc" id="L84">        .parquet(outputPath)</span>
+    }
+  }
+
+  def generateNinthdecimalPublic(ndCwParqPath: String,
+                                 ndFactPubParqPath: String,
+                                 infobasePath: String,
+                                 processingYear: String,
+                                 processingMonths: Seq[String],
+                                 outputPath: String): Unit = {
+
+    //Crosswalk table
+<span class="fc" id="L96">    val ndCwParqData = spark.read.load(ndCwParqPath)</span>
+<span class="fc" id="L97">    ndCwParqData.createOrReplaceTempView(&quot;nd_cw&quot;)</span>
+
+    //Unique Keys
+<span class="fc" id="L100">    val ndUniquekeys = spark.read.load(infobasePath)</span>
+<span class="fc" id="L101">    ndUniquekeys.createOrReplaceTempView(&quot;nd_unique_keys&quot;)</span>
+
+<span class="fc" id="L103">    spark.udf.register(&quot;toProperCase&quot;, toProperCase)</span>
+
+<span class="fc" id="L105">    for (month &lt;- processingMonths) {</span>
+
+      //load fact data for Public places
+<span class="fc" id="L108">      val ndFactPubByMonth = spark.read.load(ndFactPubParqPath + &quot;year=&quot; + processingYear + &quot;/month=&quot; + month + &quot;/&quot;)</span>
+<span class="fc" id="L109">      ndFactPubByMonth.createOrReplaceTempView(&quot;nd_fact_pub_month&quot;)</span>
+
+      //create customTimestamp for public places
+<span class="fc" id="L112">      val ndFactPubByMonthTimeStamp = spark.sql(&quot;SELECT timestamp_local, to_timestamp(timestamp_local,'yyyy-MM-dd HH:mm:ss') as custom_timestamp, device_anonymous_id, city, state, zip, public_place_name FROM nd_fact_pub_month&quot;)</span>
+<span class="fc" id="L113">      ndFactPubByMonthTimeStamp.createOrReplaceTempView(&quot;nd_fact_pub_month_detail_timestamp&quot;)</span>
+
+      //join cw and infobase
+<span class="fc" id="L116">      val ndCwUniqueKeys = spark.sql(&quot;SELECT a.minorca_id, b.mbid, b.mbid_value, b.hhid, b.hhid_value FROM nd_cw a inner join nd_unique_keys b ON a.mbid = b.mbid_value&quot;)</span>
+<span class="fc" id="L117">      ndCwUniqueKeys.createOrReplaceTempView(&quot;nd_cw_uniqueKeys&quot;)</span>
+
+      //fact public without duplicates
+<span class="fc" id="L120">      val ndFactPubFilterDup = spark.sql(&quot;select * from (select ROW_NUMBER()  OVER(PARTITION BY device_anonymous_id, timestamp_local, custom_timestamp, city, state, zip, public_place_name ORDER BY timestamp_local) as RowNum,  device_anonymous_id, timestamp_local, custom_timestamp, city, state, zip, public_place_name from nd_fact_pub_month_detail_timestamp) x where RowNum=1&quot;)</span>
+<span class="fc" id="L121">      ndFactPubFilterDup.createOrReplaceTempView(&quot;nd_fact_pub_filter_dup&quot;)</span>
+
+      //join cw infobase and fact public
+<span class="fc" id="L124">      val ndFactPubCwUniqueKeys = spark.sql(&quot;SELECT a.timestamp_local, a.custom_timestamp, a.device_anonymous_id, a.city, a.state, a.zip, a.public_place_name, b.mbid, b.mbid_value, b.hhid, b.hhid_value FROM nd_fact_pub_filter_dup a inner join nd_cw_uniqueKeys b ON (a.device_anonymous_id = minorca_id )&quot;)</span>
+<span class="fc" id="L125">      ndFactPubCwUniqueKeys.createOrReplaceTempView(&quot;nd_fact_pub_cw_unique_keys&quot;)</span>
+
+      //include date in nd public
+<span class="fc" id="L128">      val ndFactPubWithDate = spark.sql(&quot;SELECT timestamp_local, TO_DATE(CAST(UNIX_TIMESTAMP(custom_timestamp,'yyyy-MM-dd') AS TIMESTAMP)) AS date,&quot; +</span>
+        &quot; hour(custom_timestamp) as hour, device_anonymous_id, city, state, zip, public_place_name, mbid, mbid_value, hhid, hhid_value FROM nd_fact_pub_cw_unique_keys&quot;)
+<span class="fc" id="L130">      ndFactPubWithDate.createOrReplaceTempView(&quot;nd_fact_pub_with_date&quot;)</span>
+
+      //Day parts for nd public
+<span class="fc" id="L133">      spark.sql(&quot;SELECT date, timestamp_local, device_anonymous_id, toProperCase(city) as city, state, zip, toProperCase(public_place_name) as public_place_name,&quot; +</span>
+<span class="fc" id="L134">        &quot; mbid, mbid_value, hhid, hhid_value, case when hour=0 then '23:00-01:00' else case when hour=1 then '23:00-01:00' else case when hour=2 then '02:00-04:00' else case when hour=3 then '02:00-04:00' else case when hour=4 then '02:00-04:00' else case when hour=5 then '05:00-06:00' else case when hour=6 then '05:00-06:00' else case when hour=7 then '07:00-08:00' else case when hour=8 then '07:00-08:00' else case when hour=9 then '09:00-10:00' else case when hour=10 then '09:00-10:00' else case when hour=11 then '11:00-13:00' else case when hour=12 then '11:00-13:00' else case when hour=13 then '11:00-13:00' else case when hour=14 then '14:00-16:00' else case when hour=15 then '14:00-16:00' else case when hour=16 then '14:00-16:00' else case when hour=17 then '17:00-18:00' else case when hour=18 then '17:00-18:00' else case when hour=19 then '19:00-20:00' else case when hour=20 then '19:00-20:00' else case when hour=21 then '21:00-22:00' else case when hour=22 then '21:00-22:00' else case when hour=23 then '23:00-01:00' else case when hour=24 then '23:00-01:00'  else 'NA' END END END END END END END END END END END END END END END END END END END END END END END END END as daypart FROM nd_fact_pub_with_date&quot;).createOrReplaceTempView(&quot;nd_pub_data_with_dayparts&quot;)</span>
+
+<span class="fc" id="L136">      val dfResultForPublic = spark.sql(&quot;SELECT * FROM nd_pub_data_with_dayparts&quot;)</span>
+
+<span class="fc" id="L138">      val selectColumnsForPublic = Seq(col(&quot;mbid&quot;), col(&quot;mbid_value&quot;), col(&quot;hhid&quot;), col(&quot;hhid_value&quot;), col(&quot;device_anonymous_id&quot;), col(&quot;timestamp_local&quot;).as(&quot;local_timestamp&quot;)</span>
+<span class="fc" id="L139">        , col(&quot;date&quot;), col(&quot;city&quot;),</span>
+<span class="fc" id="L140">        col(&quot;state&quot;), col(&quot;zip&quot;), col(&quot;public_place_name&quot;),</span>
+<span class="fc" id="L141">        col(&quot;daypart&quot;))</span>
+
+<span class="fc" id="L143">      val partitionColumnsForPublic = List(&quot;date&quot;)</span>
+
+<span class="fc" id="L145">      dfResultForPublic</span>
+<span class="fc" id="L146">        .select(selectColumnsForPublic: _*)</span>
+<span class="fc" id="L147">        .write.mode(SaveMode.Append)</span>
+<span class="fc" id="L148">        .partitionBy(partitionColumnsForPublic: _*)</span>
+<span class="fc" id="L149">        .parquet(outputPath)</span>
+    }
+  }
+
+  def generateNinthdecimal(startDate: String,
+                           endDate: String,
+                           inputPath: String,
+                           outputPath: String
+                          ): Unit = {
+
+
+<span class="fc" id="L160">    val ndComDf = spark.read</span>
+<span class="fc" id="L161">      .load(inputPath + &quot;commercial/&quot;)</span>
+<span class="fc" id="L162">      .where(col(&quot;date&quot;)</span>
+<span class="fc" id="L163">        .between(to_date(lit(startDate), &quot;yyyy-MM-dd&quot;), to_date(lit(endDate), &quot;yyyy-MM-dd&quot;)))</span>
+
+<span class="fc" id="L165">    val ndPubDf = spark.read</span>
+<span class="fc" id="L166">      .load(inputPath + &quot;public/&quot;)</span>
+<span class="fc" id="L167">      .where(col(&quot;date&quot;)</span>
+<span class="fc" id="L168">        .between(to_date(lit(startDate), &quot;yyyy-MM-dd&quot;), to_date(lit(endDate), &quot;yyyy-MM-dd&quot;)))</span>
+
+<span class="fc" id="L170">    ndComDf.createOrReplaceTempView(&quot;nd_com&quot;)</span>
+<span class="fc" id="L171">    ndPubDf.createOrReplaceTempView(&quot;nd_pub&quot;)</span>
+
+<span class="fc" id="L173">    val ndCommercial = spark.sql(&quot;select mbid, &quot; +</span>
+      &quot;mbid_value, &quot; +
+      &quot;hhid, &quot; +
+      &quot;hhid_value, &quot; +
+      &quot;device_anonymous_id, &quot; +
+      &quot;local_timestamp, &quot; +
+      &quot;city, &quot; +
+      &quot;state, &quot; +
+      &quot;zip, &quot; +
+      &quot;commercial_business_name as brand, &quot; +
+      &quot;daypart, &quot; +
+      &quot;category, &quot; +
+<span class="fc" id="L185">      &quot;date &quot; +</span>
+      &quot;from nd_com&quot;)
+
+<span class="fc" id="L188">    val ndPublic = spark.sql(&quot;select mbid, &quot; +</span>
+      &quot;mbid_value, &quot; +
+      &quot;hhid, &quot; +
+      &quot;hhid_value, &quot; +
+      &quot;device_anonymous_id, &quot; +
+      &quot;local_timestamp, &quot; +
+      &quot;city, &quot; +
+      &quot;state, &quot; +
+      &quot;zip, &quot; +
+      &quot;public_place_name as brand, &quot; +
+      &quot;daypart, &quot; +
+      &quot;'NA' as category, &quot; +
+<span class="fc" id="L200">      &quot;date &quot; +</span>
+      &quot;from nd_pub&quot;)
+
+<span class="fc" id="L203">    val ndUnion = ndCommercial.union(ndPublic)</span>
+
+<span class="fc" id="L205">    ndUnion.write</span>
+<span class="fc" id="L206">      .mode(SaveMode.Append)</span>
+<span class="fc" id="L207">      .partitionBy(&quot;date&quot;)</span>
+<span class="fc" id="L208">      .parquet(outputPath)</span>
+
+  }
+
+
+<span class="fc" id="L213">  override def run(args: JSONObject): Unit = {</span>
+
+<span class="fc" id="L215">    val placeType = args.getString(&quot;placeType&quot;)</span>
+
+<span class="pc bpc" id="L217" title="6 of 12 branches missed.">    if (placeType == &quot;com&quot; || placeType == &quot;pub&quot;) {</span>
+
+<span class="fc" id="L219">      val ndCwParqPath = args.getString(&quot;ndCwParqPath&quot;)</span>
+<span class="fc" id="L220">      val infobasePath = args.getString(&quot;infobasePath&quot;)</span>
+<span class="fc" id="L221">      val processingYear = args.getString(&quot;processingYear&quot;)</span>
+<span class="fc" id="L222">      val processingMonths = args.getSeq[String](&quot;processingMonths&quot;)</span>
+<span class="fc" id="L223">      val outputPath = args.getString(&quot;outputPath&quot;)</span>
+
+<span class="pc bpc" id="L225" title="3 of 6 branches missed.">      if (placeType == &quot;com&quot;) {</span>
+<span class="fc" id="L226">        val ndFactComParqPath = args.getString(&quot;ndFactComParqPath&quot;)</span>
+<span class="fc" id="L227">        val poiDetailPath = args.getString(&quot;ndPoiDetailPath&quot;)</span>
+<span class="fc" id="L228">        generateNinthdecimaldCommercial(</span>
+<span class="fc" id="L229">          ndCwParqPath,</span>
+<span class="fc" id="L230">          ndFactComParqPath,</span>
+<span class="fc" id="L231">          poiDetailPath,</span>
+<span class="fc" id="L232">          infobasePath,</span>
+<span class="fc" id="L233">          processingYear,</span>
+<span class="fc" id="L234">          processingMonths,</span>
+<span class="fc" id="L235">          outputPath</span>
+        )
+      }
+
+<span class="pc bpc" id="L239" title="3 of 6 branches missed.">      if (placeType == &quot;pub&quot;) {</span>
+<span class="fc" id="L240">        val ndFactPubParqPath = args.getString(&quot;ndFactPubParqPath&quot;)</span>
+<span class="fc" id="L241">        generateNinthdecimalPublic(</span>
+<span class="fc" id="L242">          ndCwParqPath,</span>
+<span class="fc" id="L243">          ndFactPubParqPath,</span>
+<span class="fc" id="L244">          infobasePath,</span>
+<span class="fc" id="L245">          processingYear,</span>
+<span class="fc" id="L246">          processingMonths,</span>
+<span class="fc" id="L247">          outputPath</span>
+        )
+      }
+    }
+<span class="pc bpc" id="L251" title="4 of 6 branches missed.">    else if (placeType == &quot;com-pub&quot;) {</span>
+<span class="fc" id="L252">      val inputPath = args.getString(&quot;inputPath&quot;)</span>
+<span class="fc" id="L253">      val startDate = args.getString(&quot;startDate&quot;)</span>
+<span class="fc" id="L254">      val endDate = args.getString(&quot;endDate&quot;)</span>
+<span class="fc" id="L255">      val outputPath = args.getString(&quot;outputPath&quot;)</span>
+
+<span class="fc" id="L257">      generateNinthdecimal(startDate,endDate,inputPath,outputPath)</span>
+    }
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

@@ -1,0 +1,350 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>BatchDataSubAggregatedProcessor.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.producer</a> &gt; <span class="el_source">BatchDataSubAggregatedProcessor.scala</span></div><h1>BatchDataSubAggregatedProcessor.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.producer
+
+import java.util.concurrent.TimeUnit
+
+import com.mbww.cia.common.Spark.spark
+import com.mbww.cia.common.utility.util.DataFrameUtils
+import com.mbww.cia.common.{Module, _}
+import com.mbww.cia.core.exception.EmptyFilteredDataFrameException
+import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.functions.{lit, _}
+import org.apache.spark.sql.types.StringType
+import org.apache.spark.sql.{Column, DataFrame, Row}
+import org.apache.spark.util.LongAccumulator
+import org.json.JSONObject
+import org.slf4j.{Logger, LoggerFactory}
+
+<span class="nc" id="L17">class BatchDataSubAggregatedProcessor extends Module {</span>
+
+<span class="nc" id="L19">  val logger: Logger = LoggerFactory.getLogger(this.getClass)</span>
+
+  override def run(args: JSONObject): Unit = {
+    // input data properties
+<span class="nc" id="L23">    val consumer_batch_size = args.getString(&quot;consumer_batch_size&quot;).toLong</span>
+<span class="nc" id="L24">    val parquetInputPath = args.getString(&quot;parquet_input_path&quot;)</span>
+<span class="nc" id="L25">    val splitDataframeNumber = args.getString(&quot;split_dataframe_number&quot;).toInt</span>
+<span class="nc" id="L26">    val isPivot = args.getOrElse[String](&quot;is_pivot&quot;, &quot;true&quot;).toBoolean</span>
+<span class="nc" id="L27">    val aggregationType = args.getOrElse[String](&quot;aggregation_type&quot;, &quot;&quot;)</span>
+<span class="nc" id="L28">    val attributeName = args.getString(&quot;attribute_name&quot;)</span>
+<span class="nc" id="L29">    val metadataPath = args.getString(&quot;metadata_path&quot;)</span>
+<span class="nc" id="L30">    val mbid = args.getString(&quot;mbid&quot;)</span>
+<span class="nc" id="L31">    val hhid = args.getString(&quot;hhid&quot;)</span>
+<span class="nc" id="L32">    val typeData = args.getString(&quot;type&quot;)</span>
+<span class="nc" id="L33">    val filterExp = args.getString(&quot;filter_expr&quot;)</span>
+<span class="nc" id="L34">    val dropColumns = args.getString(&quot;drop_columns&quot;).replaceAll(&quot;\\s&quot;, &quot;&quot;).split(&quot;,&quot;)</span>
+    // Kinesis properties
+<span class="nc" id="L36">    val region = args.getOrElse[String](&quot;region&quot;, &quot;&quot;)</span>
+<span class="nc" id="L37">    val streamName = args.getOrElse[String](&quot;stream_name&quot;, &quot;&quot;)</span>
+<span class="nc" id="L38">    val market = args.getOrElse[String](&quot;market&quot;, &quot;&quot;)</span>
+<span class="nc" id="L39">    val dataset = args.getOrElse[String](&quot;dataset&quot;, &quot;&quot;)</span>
+<span class="nc" id="L40">    val kplBatchSize = args.getOrElse[String](&quot;kpl_batch_size&quot;, &quot;1000&quot;).toInt</span>
+    //start the process
+<span class="nc" id="L42">    val startTimeAll = System.currentTimeMillis()</span>
+<span class="nc" id="L43">    val metadataDF = getMetadataDF(metadataPath)</span>
+<span class="nc" id="L44">    val acc: LongAccumulator = spark.sparkContext.longAccumulator(&quot;Aggregated batches&quot;)</span>
+<span class="nc" id="L45">    val groupCols = Seq(mbid, hhid).filter(_.trim.nonEmpty).map(col)</span>
+
+    //read attribute
+<span class="nc bnc" id="L48" title="All 2 branches missed.">    if (!aggregationType.isEmpty) {</span>
+<span class="nc" id="L49">      processAttribute(parquetInputPath,</span>
+<span class="nc" id="L50">        filterExp,</span>
+<span class="nc" id="L51">        attributeName,</span>
+<span class="nc" id="L52">        dropColumns,</span>
+<span class="nc" id="L53">        metadataDF,</span>
+<span class="nc" id="L54">        mbid,</span>
+<span class="nc" id="L55">        hhid,</span>
+<span class="nc" id="L56">        typeData,</span>
+<span class="nc" id="L57">        groupCols,</span>
+<span class="nc" id="L58">        market: String,</span>
+<span class="nc" id="L59">        dataset: String,</span>
+<span class="nc" id="L60">        region: String,</span>
+<span class="nc" id="L61">        streamName: String,</span>
+<span class="nc" id="L62">        kplBatchSize: Int,</span>
+<span class="nc" id="L63">        acc: LongAccumulator,</span>
+<span class="nc" id="L64">        aggregationType,</span>
+<span class="nc" id="L65">        Some(consumer_batch_size)</span>
+      )
+
+    }
+    else {
+
+<span class="nc" id="L71">      val parquetDF = getParquetDF(parquetInputPath,filterExp)</span>
+<span class="nc" id="L72">        .drop(dropColumns: _*)</span>
+<span class="nc" id="L73">        .withColumn(&quot;row_number&quot;, monotonically_increasing_id())</span>
+<span class="nc" id="L74">      logger.info(&quot;Aggregated batches: &quot; + acc.sum)</span>
+
+      //calculate chunks inputs
+<span class="nc" id="L77">      val attIdsSize = parquetDF.count</span>
+<span class="nc" id="L78">      val maxim = parquetDF.agg(max(&quot;row_number&quot;)).first().getLong(0)</span>
+<span class="nc" id="L79">      val batchesNumber = Math.round(attIdsSize / consumer_batch_size).toLong</span>
+<span class="nc" id="L80">      val relation = BigInt(maxim) * BigInt(consumer_batch_size) / BigInt(attIdsSize)</span>
+<span class="nc" id="L81">      val batchesAmount = relation.toLong</span>
+<span class="nc" id="L82">      val batchesNumberTotal = batchesNumber * splitDataframeNumber.toLong</span>
+<span class="nc" id="L83">      println(s&quot;Number of consumers: $attIdsSize&quot;)</span>
+<span class="nc" id="L84">      println(s&quot;Row number max: $maxim&quot;)</span>
+<span class="nc" id="L85">      println(s&quot;It will process $batchesNumber Dataframes split in aprox $splitDataframeNumber :&quot; +</span>
+<span class="nc" id="L86">        s&quot;aprox $batchesNumberTotal batches&quot;)</span>
+<span class="nc" id="L87">      var batchIdx: Long = 0</span>
+<span class="nc" id="L88">      var batchSize: Long = batchesAmount.toLong</span>
+
+<span class="nc bnc" id="L90" title="All 2 branches missed.">      while (batchIdx &lt; maxim) {</span>
+<span class="nc" id="L91">        val pivotedBatchDf = parquetDF</span>
+<span class="nc" id="L92">          .filter(col(&quot;row_number&quot;).between(batchIdx, batchIdx + batchSize))</span>
+<span class="nc" id="L93">          .drop(col(&quot;row_number&quot;))</span>
+        // process each batch
+<span class="nc" id="L95">        processBatch(pivotedBatchDf: DataFrame,</span>
+<span class="nc" id="L96">          metadataDF: DataFrame,</span>
+<span class="nc" id="L97">          market: String,</span>
+<span class="nc" id="L98">          dataset: String,</span>
+<span class="nc" id="L99">          mbid: String,</span>
+<span class="nc" id="L100">          hhid: String,</span>
+<span class="nc" id="L101">          typeData,</span>
+<span class="nc" id="L102">          groupCols,</span>
+<span class="nc" id="L103">          isPivot: Boolean,</span>
+<span class="nc" id="L104">          region: String,</span>
+<span class="nc" id="L105">          streamName: String,</span>
+<span class="nc" id="L106">          kplBatchSize: Int,</span>
+<span class="nc" id="L107">          splitDataframeNumber: Int,</span>
+<span class="nc" id="L108">          acc: LongAccumulator</span>
+        )
+
+<span class="nc" id="L111">        batchIdx += batchSize</span>
+
+      }
+    }
+    //Finish the process
+<span class="nc" id="L116">    val endTimeAll = System.currentTimeMillis()</span>
+<span class="nc" id="L117">    val timeTakenInSecondsALL = TimeUnit.MILLISECONDS.toSeconds(endTimeAll - startTimeAll)</span>
+<span class="nc" id="L118">    logger.info(&quot;TIME ALL PROCESS: &quot; + timeTakenInSecondsALL)</span>
+  }
+
+  // convert the consumer dataframe in one rdd
+  def getRDDs(consumerDataframe: DataFrame, market: String, dataset: String, mbid: String, hhid: String, typeData: String): RDD[Row] = {
+
+<span class="nc bnc" id="L124" title="All 6 branches missed.">    if (hhid == &quot;&quot;) {</span>
+<span class="nc" id="L125">      consumerDataframe</span>
+<span class="nc" id="L126">        .withColumnRenamed(s&quot;$mbid&quot;, &quot;consumer_pel&quot;)</span>
+<span class="nc" id="L127">        .filter(col(&quot;attributes&quot;).isNotNull).filter(col(&quot;attributes&quot;).cast(StringType) =!= &quot;[]&quot;)</span>
+<span class="nc" id="L128">        .withColumn(&quot;market&quot;, lit(market)).withColumn(&quot;dataset&quot;, lit(dataset))</span>
+<span class="nc" id="L129">        .withColumn(&quot;type&quot;, lit(typeData))</span>
+<span class="nc" id="L130">        .withColumn(&quot;row&quot;, to_json(struct(&quot;*&quot;)))</span>
+<span class="nc" id="L131">        .select(&quot;row&quot;)</span>
+<span class="nc" id="L132">        .rdd</span>
+    }
+    else {
+<span class="nc" id="L135">      consumerDataframe</span>
+<span class="nc" id="L136">        .withColumnRenamed(s&quot;$mbid&quot;, &quot;consumer_pel&quot;)</span>
+<span class="nc" id="L137">        .withColumnRenamed(s&quot;$hhid&quot;, &quot;household_pel&quot;)</span>
+<span class="nc" id="L138">        .filter(col(&quot;attributes&quot;).isNotNull).filter(col(&quot;attributes&quot;).cast(StringType) =!= &quot;[]&quot;)</span>
+<span class="nc" id="L139">        .withColumn(&quot;market&quot;, lit(market)).withColumn(&quot;dataset&quot;, lit(dataset))</span>
+<span class="nc" id="L140">        .withColumn(&quot;type&quot;, lit(typeData))</span>
+<span class="nc" id="L141">        .withColumn(&quot;row&quot;, to_json(struct(&quot;*&quot;)))</span>
+<span class="nc" id="L142">        .select(&quot;row&quot;)</span>
+<span class="nc" id="L143">        .rdd</span>
+    }
+  }
+
+  // read the input
+  def getParquetDF(inputPath: String, filterExpr: String): DataFrame = {
+<span class="nc bnc" id="L149" title="All 2 branches missed.">    val readDF = if (!filterExpr.isEmpty) {</span>
+<span class="nc" id="L150">      val filteredDF = spark.read.load(inputPath).filter(filterExpr)</span>
+<span class="nc bnc" id="L151" title="All 2 branches missed.">      if (filteredDF.count() == 0) {</span>
+<span class="nc" id="L152">        throw EmptyFilteredDataFrameException(</span>
+<span class="nc" id="L153">          s&quot; The filter expression  $filterExpr does not return any output on the path $inputPath&quot;)</span>
+      }
+<span class="nc" id="L155">      filteredDF</span>
+
+    } else {
+<span class="nc" id="L158">      spark.read.load(inputPath)</span>
+    }
+<span class="nc" id="L160">    readDF</span>
+  }
+
+
+
+  def processAttribute(inputPath: String, filterExp: String, attributeName: String,
+                       dropColumns: Seq[String], metadataDF: DataFrame,
+                       mbid: String, hhid: String, typeData: String,
+                       groupCols: Seq[Column],
+                       market: String, dataset: String,
+                       region: String, streamName: String,
+                       kplBatchSize: Int, acc: LongAccumulator,
+                       aggregationType: String,
+<span class="nc" id="L173">                       subAggBatchSize: Option[Long] = None): Unit = {</span>
+
+<span class="nc" id="L175">    val inputDF = getParquetDF(inputPath,filterExp).drop(dropColumns: _*).distinct()</span>
+<span class="nc" id="L176">    val withAttributeIds = getId(inputDF, attributeName, metadataDF, groupCols)</span>
+
+<span class="nc bnc" id="L178" title="All 6 branches missed.">    if (aggregationType == &quot;FULL&quot;) {</span>
+<span class="nc" id="L179">      processFullAggregation(withAttributeIds, mbid, hhid, typeData,</span>
+<span class="nc" id="L180">        groupCols,</span>
+<span class="nc" id="L181">        market, dataset,</span>
+<span class="nc" id="L182">        region, streamName,</span>
+<span class="nc" id="L183">        kplBatchSize, acc)</span>
+    } else {
+<span class="nc" id="L185">      require(subAggBatchSize.nonEmpty, &quot;For sub aggregation processing, the consumer_batch_size is mandatory.&quot;)</span>
+<span class="nc" id="L186">      processSubAggregation(withAttributeIds, mbid, hhid, typeData,</span>
+<span class="nc" id="L187">        groupCols,</span>
+<span class="nc" id="L188">        market, dataset,</span>
+<span class="nc" id="L189">        region, streamName,</span>
+<span class="nc" id="L190">        kplBatchSize, acc,</span>
+<span class="nc" id="L191">        subAggBatchSize.get)</span>
+    }
+  }
+
+  private def processFullAggregation(parquetDF: DataFrame,
+                                     mbid: String, hhid: String, typeData: String,
+                                     groupCols: Seq[Column],
+                                     market: String, dataset: String,
+                                     region: String, streamName: String,
+                                     kplBatchSize: Int, acc: LongAccumulator): Unit = {
+<span class="nc" id="L201">    logger.debug(s&quot;Getting rid of null values &quot;)</span>
+    //Drop null attributes and cast ids to long
+<span class="nc" id="L203">    val selectCols = groupCols :+ col(&quot;attributes&quot;).cast(&quot;long&quot;).as(&quot;attributes&quot;)</span>
+<span class="nc" id="L204">    val nonNullAttributes = parquetDF.filter(col(&quot;attributes&quot;).isNotNull)</span>
+<span class="nc" id="L205">      .select(selectCols: _*)</span>
+
+<span class="nc" id="L207">    logger.debug(s&quot;Performing aggregation&quot;)</span>
+    //Perform aggregation
+<span class="nc" id="L209">    val grouped = nonNullAttributes.groupBy(groupCols: _*).agg(collect_list(&quot;attributes&quot;).as(&quot;attributes&quot;))</span>
+
+    //Obtain the final RDD to send
+<span class="nc" id="L212">    logger.debug(s&quot;Generating RDD to send to kinessis&quot;)</span>
+<span class="nc" id="L213">    val rddToSend = getRDDs(grouped, market, dataset, mbid, hhid, typeData)</span>
+<span class="nc" id="L214">    KinesisDataWriter.writeSparkOneDF(region, streamName, rddToSend, acc, kplBatchSize)</span>
+  }
+
+  private def processSubAggregation(parquetDF: DataFrame,
+                                    mbid: String, hhid: String, typeData: String,
+                                    groupCols: Seq[Column],
+                                    market: String, dataset: String,
+                                    region: String, streamName: String,
+                                    kplBatchSize: Int, acc: LongAccumulator,
+                                    subAggBatchSize: Long): Unit = {
+
+    //Split the data frame and process in batches
+<span class="nc" id="L226">    val batches = DataFrameUtils.splitDataFrame(parquetDF, subAggBatchSize)</span>
+<span class="nc" id="L227">    logger.info(s&quot;Sub Aggregation process started with ${batches.length} batches&quot;)</span>
+
+<span class="nc bnc" id="L229" title="All 4 branches missed.">    batches.zipWithIndex.foreach { case (batch, idx) =&gt;</span>
+
+<span class="nc" id="L231">      logger.info(s&quot;Processing batch # $idx&quot;)</span>
+<span class="nc" id="L232">      logger.debug(s&quot;Getting rid of null values in batch # $idx&quot;)</span>
+      //Drop null attributes and cast ids to long
+<span class="nc" id="L234">      val selectCols = groupCols :+ col(&quot;attributes&quot;).cast(&quot;long&quot;).as(&quot;attributes&quot;)</span>
+<span class="nc" id="L235">      val nonNullAttributes = batch.filter(col(&quot;attributes&quot;).isNotNull)</span>
+<span class="nc" id="L236">        .select(selectCols: _*)</span>
+
+<span class="nc" id="L238">      logger.debug(s&quot;Performing aggregation in batch # $idx&quot;)</span>
+      //Perform aggregation on each batch
+<span class="nc" id="L240">      val grouped = nonNullAttributes.groupBy(groupCols: _*).agg(collect_list(&quot;attributes&quot;).as(&quot;attributes&quot;))</span>
+
+      //Obtain the final RDD to send
+<span class="nc" id="L243">      logger.debug(s&quot;Generating RDD to send to kinessis for batch # $idx&quot;)</span>
+<span class="nc" id="L244">      val rddToSend = getRDDs(grouped, market, dataset, mbid, hhid, typeData)</span>
+
+      //Send to kinesis
+<span class="nc" id="L247">      KinesisDataWriter.writeSparkOneDF(region, streamName, rddToSend, acc, kplBatchSize)</span>
+<span class="nc" id="L248">      logger.info(s&quot;Finished processing batch # $idx&quot;)</span>
+    }
+
+<span class="nc" id="L251">    logger.info(s&quot;Sub aggregation process and send finished, batches processed: ${batches.length}&quot;)</span>
+  }
+
+  // convert the  dataFrame in possibles outputs depending on the pivot parameter
+  def getAnswers(inputDF: DataFrame, names: Array[String], metadataDF: DataFrame, isPivot: Boolean): DataFrame = {
+<span class="nc" id="L256">    var outDF = inputDF</span>
+<span class="nc bnc" id="L257" title="All 2 branches missed.">    if (isPivot) {</span>
+<span class="nc" id="L258">      names.foreach(name =&gt;</span>
+<span class="nc" id="L259">        outDF = outDF.withColumn(name, concat(lit(s&quot;$name&quot;), lit(&quot;_&quot;), col(name)))</span>
+      )
+    }
+    else {
+<span class="nc" id="L263">      names.foreach(name =&gt;</span>
+<span class="nc" id="L264">        outDF = outDF.withColumn(name, when(col(name) === &quot;1&quot;, lit(s&quot;$name&quot;)))</span>
+      )
+    }
+<span class="nc" id="L267">    outDF</span>
+  }
+
+  // join the Dataframe with metadata in order to get the Ids
+  def getIds(inputDF: DataFrame, names: Array[String], metadataDF: DataFrame, groupCols: Seq[Column]): DataFrame = {
+<span class="nc" id="L272">    val selectCols = groupCols :+ col(&quot;attributes&quot;)</span>
+<span class="nc" id="L273">    var outDF = inputDF</span>
+<span class="nc" id="L274">    names.foreach(name =&gt;</span>
+<span class="nc" id="L275">      outDF = outDF.join(metadataDF, col(name) === metadataDF(&quot;attribute&quot;), &quot;left&quot;)</span>
+<span class="nc" id="L276">        .select(outDF.col(&quot;*&quot;), metadataDF(&quot;att_id&quot;).as(&quot;temp_&quot; + name))</span>
+<span class="nc" id="L277">        .drop(name).withColumn(s&quot;$name&quot;, col(&quot;temp_&quot; + name)).drop(&quot;temp_&quot; + name)</span>
+    )
+<span class="nc" id="L279">    outDF = outDF.withColumn(&quot;attributes&quot;, split(concat_ws(&quot;,&quot;, names.map(col): _*), &quot;,&quot;).cast(&quot;array&lt;long&gt;&quot;))</span>
+<span class="nc" id="L280">      .select(selectCols: _*)</span>
+<span class="nc" id="L281">    outDF</span>
+  }
+
+  def getId(inputDF: DataFrame, name: String, metadataDF: DataFrame, groupCols: Seq[Column]): DataFrame = {
+<span class="nc" id="L285">    val selectCols = groupCols :+ col(&quot;attributes&quot;)</span>
+<span class="nc" id="L286">    inputDF.join(metadataDF, col(name) === metadataDF(&quot;attribute&quot;), &quot;left&quot;)</span>
+<span class="nc" id="L287">      .select(inputDF.col(&quot;*&quot;), metadataDF(&quot;att_id&quot;).as(&quot;attributes&quot;))</span>
+<span class="nc" id="L288">      .drop(name).select(selectCols: _*)</span>
+
+  }
+
+  // read and format Metadata
+
+  private def getMetadataDF(metadataPath: String): DataFrame
+
+  = {
+<span class="nc" id="L297">    val outDF = spark.read.json(metadataPath).select(explode(col(&quot;mapping&quot;)))</span>
+<span class="nc" id="L298">      .withColumnRenamed(&quot;col&quot;, &quot;mapping&quot;)</span>
+<span class="nc" id="L299">      .select(col(&quot;mapping.attr&quot;).as(&quot;attribute&quot;),</span>
+<span class="nc" id="L300">        col(&quot;mapping.id&quot;).as(&quot;att_id&quot;)).cache()</span>
+<span class="nc" id="L301">    outDF</span>
+  }
+
+  private def processBatch(parquetDF: DataFrame,
+                           metadataDF: DataFrame,
+                           market: String,
+                           dataset: String,
+                           mbid: String,
+                           hhid: String,
+                           typeData: String,
+                           groupCols: Seq[Column],
+                           isPivot: Boolean,
+                           region: String,
+                           streamName: String,
+                           kplBatchSize: Int,
+                           splitDataframeNumber: Int,
+                           acc: LongAccumulator
+                          ): Unit
+
+  = {
+    //get the columns of the dataframe
+<span class="nc bnc" id="L322" title="All 6 branches missed.">    val nameColumns: Array[String] = if (hhid == &quot;&quot;) {</span>
+<span class="nc" id="L323">      parquetDF.drop(mbid).columns</span>
+    } else {
+<span class="nc" id="L325">      parquetDF.drop(mbid).drop(hhid).columns</span>
+    }
+    //split columns depending on split data number input
+<span class="nc bnc" id="L328" title="All 2 branches missed.">    val groupNames = if (nameColumns.length % 2 == 0) {</span>
+<span class="nc" id="L329">      nameColumns.length / splitDataframeNumber</span>
+    }
+    else {
+<span class="nc" id="L332">      (nameColumns.length + 1) / splitDataframeNumber</span>
+    }
+<span class="nc" id="L334">    val listNames = nameColumns.grouped(groupNames).toList</span>
+    //genearate and process each subdataframe
+<span class="nc bnc" id="L336" title="All 2 branches missed.">    listNames.foreach(name =&gt; {</span>
+<span class="nc bnc" id="L337" title="All 6 branches missed.">      val split1 = if (hhid == &quot;&quot;) {</span>
+<span class="nc" id="L338">        mbid +: name</span>
+      } else {
+<span class="nc" id="L340">        mbid +: hhid +: name</span>
+      }
+<span class="nc" id="L342">      val parquetSubDF = parquetDF.select(split1.map(col): _*)</span>
+<span class="nc" id="L343">      val answerSubDF = getAnswers(parquetSubDF, name, metadataDF, isPivot)</span>
+<span class="nc" id="L344">      val idsSubDF = getIds(answerSubDF, name, metadataDF, groupCols)</span>
+<span class="nc" id="L345">      val rddToSend = getRDDs(idsSubDF, market, dataset, mbid, hhid, typeData)</span>
+<span class="nc" id="L346">      KinesisDataWriter.writeSparkOneDF(region, streamName, rddToSend, acc, kplBatchSize)</span>
+    })
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

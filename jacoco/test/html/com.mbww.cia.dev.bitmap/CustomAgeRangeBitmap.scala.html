@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CustomAgeRangeBitmap.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.bitmap</a> &gt; <span class="el_source">CustomAgeRangeBitmap.scala</span></div><h1>CustomAgeRangeBitmap.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.bitmap
+
+import com.mbww.cia.common.Spark._
+import com.mbww.cia.common.bitmap._
+import com.mbww.cia.common.{Module, _}
+import org.apache.hadoop.fs.Path
+import org.apache.log4j.Logger
+import org.apache.spark.sql._
+import org.apache.spark.sql.expressions.Aggregator
+import org.apache.spark.sql.functions.lit
+import org.json.JSONObject
+import org.roaringbitmap.buffer.MutableRoaringBitmap
+
+import scala.collection.parallel.ForkJoinTaskSupport
+
+object CustomAgeRangeBitmap {
+<span class="fc" id="L17">  class CustomAgeRangeBitmapAggregator(colBitmap: String) extends Aggregator[Row, MutableRoaringBitmap, Array[Byte]] {</span>
+
+<span class="fc" id="L19">    override def zero = new MutableRoaringBitmap</span>
+
+    override def reduce(mlk: MutableRoaringBitmap, a: Row): MutableRoaringBitmap = {
+<span class="fc" id="L22">      val rawB = a.getAs[Array[Byte]](colBitmap)</span>
+<span class="fc" id="L23">      val b = com.mbww.cia.common.bitmap.Udfs.deserializeBitmap(rawB)</span>
+<span class="fc" id="L24">      mlk.or(b)</span>
+<span class="fc" id="L25">      mlk</span>
+    }
+
+<span class="fc" id="L28">    override def merge(b1: MutableRoaringBitmap, b2: MutableRoaringBitmap) = MutableRoaringBitmap.or(b1, b2)</span>
+
+<span class="fc" id="L30">    override def finish(reduction: MutableRoaringBitmap): Array[Byte] = com.mbww.cia.common.bitmap.Udfs.serializeBitmap(reduction)</span>
+
+<span class="fc" id="L32">    override def bufferEncoder: Encoder[MutableRoaringBitmap] = Encoders.kryo(classOf[MutableRoaringBitmap])</span>
+
+<span class="fc" id="L34">    override def outputEncoder: Encoder[Array[Byte]] = Encoders.BINARY</span>
+  }
+
+<span class="fc" id="L37">  implicit class ETL(df: DataFrame) extends Serializable {</span>
+
+    def computeCustomAgeRangeBitmaps(colBitmap: String,
+<span class="fc" id="L40">                                     colName: String = Constants.CUSTOM_AGE_RANGE): DataFrame = {</span>
+<span class="fc" id="L41">      val carAggregator = new CustomAgeRangeBitmapAggregator(colBitmap)</span>
+<span class="fc" id="L42">      df.groupBy(lit(1))</span>
+<span class="fc" id="L43">        .agg(carAggregator.toColumn.as(colName))</span>
+<span class="fc" id="L44">        .select(colName)</span>
+    }
+  }
+}
+
+<span class="fc" id="L49">class CustomAgeRangeBitmap extends Module {</span>
+
+  import com.mbww.cia.dev.bitmap.CustomAgeRangeBitmap.ETL
+<span class="fc" id="L52">  private val logger = Logger.getLogger(getClass().getName())</span>
+
+<span class="pc bpc" id="L54" title="35 of 36 branches missed.">  case class CustomAgeRange(column: String, startIndex: Int, endIndex: Int)</span>
+
+  def generate(bitmapPath: String,
+               ranges: Seq[CustomAgeRange],
+               attributeId: String,
+               outputPath: String,
+<span class="nc" id="L60">               threadCount: Int = 1,</span>
+<span class="nc" id="L61">               numPartitions: Int = 1): Unit = {</span>
+
+<span class="fc" id="L63">    val fileSystem = getFileSystem(outputPath)</span>
+<span class="fc" id="L64">    val inFileSystem = getFileSystem(bitmapPath)</span>
+<span class="fc" id="L65">    val pRanges = ranges.par</span>
+<span class="fc" id="L66">    pRanges.tasksupport = new ForkJoinTaskSupport(new scala.concurrent.forkjoin.ForkJoinPool(threadCount))</span>
+
+<span class="fc" id="L68">    pRanges.foreach(r =&gt; {</span>
+<span class="fc" id="L69">      val bitmapPaths = (r.startIndex to r.endIndex)</span>
+<span class="pc bpc" id="L70" title="1 of 2 branches missed.">        .map(i =&gt; concatToPath(bitmapPath, s&quot;${attributeId}=${r.column}_$i/&quot;))</span>
+<span class="pc bpc" id="L71" title="1 of 2 branches missed.">        .filter(p =&gt; inFileSystem.exists(new Path(p)))</span>
+
+<span class="pc bpc" id="L73" title="1 of 2 branches missed.">      if (!bitmapPaths.isEmpty) {</span>
+<span class="fc" id="L74">        val outputCar = concatToPath(outputPath, s&quot;${attributeId}=${r.column}_${r.startIndex}_${r.endIndex}&quot;)</span>
+
+<span class="pc bpc" id="L76" title="1 of 2 branches missed.">        if (!fileSystem.exists(new Path(concatToPath(outputCar, &quot;_SUCCESS&quot;)))) {</span>
+<span class="fc" id="L77">          spark</span>
+<span class="fc" id="L78">            .read</span>
+<span class="fc" id="L79">            .format(classOf[BitmapBinaryFileFormat].getName)</span>
+<span class="fc" id="L80">            .load(bitmapPaths: _*)</span>
+<span class="fc" id="L81">            .computeCustomAgeRangeBitmaps(&quot;bitmap&quot;)</span>
+<span class="fc" id="L82">            .repartition(numPartitions)</span>
+<span class="fc" id="L83">            .write</span>
+<span class="fc" id="L84">            .mode(SaveMode.Overwrite)</span>
+<span class="fc" id="L85">            .format(classOf[BitmapBinaryFileFormat].getName)</span>
+<span class="fc" id="L86">            .option(&quot;mapreduce.fileoutputcommitter.algorithm.version&quot;, &quot;2&quot;)</span>
+<span class="fc" id="L87">            .save(outputCar)</span>
+        }
+      }
+    })
+  }
+
+  def generateUS(bitmappath: String,
+                 ranges: Seq[CustomAgeRange],
+                 attributeId: String,
+                 outputPath: String,
+<span class="nc" id="L97">                 threadCount: Int = 1,</span>
+<span class="nc" id="L98">                 numPartitions: Int = 1): Unit = {</span>
+
+<span class="fc" id="L100">    val fileSystem = getFileSystem(outputPath)</span>
+<span class="fc" id="L101">    val inFileSystem = getFileSystem(bitmappath)</span>
+<span class="fc" id="L102">    val pRanges = ranges.par</span>
+<span class="fc" id="L103">    pRanges.tasksupport = new ForkJoinTaskSupport(new scala.concurrent.forkjoin.ForkJoinPool(threadCount))</span>
+
+<span class="pc bpc" id="L105" title="1 of 2 branches missed.">    pRanges.foreach(r =&gt; {</span>
+
+<span class="fc" id="L107">      var outputPathOfMergedBitmap: String = null</span>
+<span class="fc" id="L108">      var colToMerge: String = null</span>
+<span class="fc" id="L109">      val constant = r.startIndex</span>
+<span class="fc" id="L110">      var firstIndex: Int = 0</span>
+<span class="fc" id="L111">      var bitmapPaths = Seq.empty[String]</span>
+
+<span class="pc bpc" id="L113" title="1 of 2 branches missed.">      for (i &lt;- r.startIndex until r.endIndex by 2) {</span>
+
+<span class="fc" id="L115">        firstIndex = i + 1</span>
+<span class="fc" id="L116">        logger.info(&quot;First Index = &quot; + firstIndex)</span>
+<span class="pc bpc" id="L117" title="1 of 4 branches missed.">        if (i == r.startIndex &amp;&amp; i &lt; constant + 1) {</span>
+<span class="fc" id="L118">          logger.info(&quot;First IF Condition&quot;)</span>
+<span class="fc" id="L119">          colToMerge = attributeId+&quot;=&quot;+ r.column + &quot;_&quot; + i + &quot;_&quot; + firstIndex</span>
+<span class="fc" id="L120">          outputPathOfMergedBitmap = &quot;age&quot; + &quot;_&quot; + r.startIndex + &quot;_&quot; + r.endIndex</span>
+        }
+<span class="pc bpc" id="L122" title="1 of 4 branches missed.">        if (i &gt; r.startIndex &amp;&amp; i &lt;= r.endIndex) {</span>
+<span class="fc" id="L123">          logger.info(&quot;Second If Condition&quot;)</span>
+<span class="fc" id="L124">          colToMerge = attributeId+&quot;=&quot;+r.column + &quot;_&quot; + i + &quot;_&quot; + firstIndex</span>
+<span class="fc" id="L125">          outputPathOfMergedBitmap = &quot;age&quot; + &quot;_&quot; + r.startIndex + &quot;_&quot; + r.endIndex</span>
+        }
+<span class="fc" id="L127">        logger.info(&quot;Column Under Processing =&gt; &quot; + colToMerge)</span>
+
+<span class="fc" id="L129">        val path = concatToPath(bitmappath,colToMerge)</span>
+
+<span class="fc bfc" id="L131" title="All 2 branches covered.">        if (!inFileSystem.exists(new Path(path))) {</span>
+<span class="fc" id="L132">          logger.info(&quot;The Requested Index &quot; + i + &quot; &quot; + &quot;could not be found for column =&gt; &quot; + r.column)</span>
+        }
+        else {
+<span class="fc" id="L135">          bitmapPaths = bitmapPaths:+path</span>
+        }
+      }
+
+<span class="fc" id="L139">      val outputCar = concatToPath(outputPath, s&quot;${attributeId}=${outputPathOfMergedBitmap}&quot;)</span>
+
+<span class="pc bpc" id="L141" title="1 of 2 branches missed.">      if (!fileSystem.exists(new Path(concatToPath(outputCar, &quot;_SUCCESS&quot;)))) {</span>
+<span class="fc" id="L142">        spark</span>
+<span class="fc" id="L143">          .read</span>
+<span class="fc" id="L144">          .format(classOf[BitmapBinaryFileFormat].getName)</span>
+<span class="fc" id="L145">          .load(bitmapPaths: _*)</span>
+<span class="fc" id="L146">          .computeCustomAgeRangeBitmaps(&quot;bitmap&quot;)</span>
+<span class="fc" id="L147">          .repartition(numPartitions)</span>
+<span class="fc" id="L148">          .write</span>
+<span class="fc" id="L149">          .mode(SaveMode.Overwrite)</span>
+<span class="fc" id="L150">          .format(classOf[BitmapBinaryFileFormat].getName)</span>
+<span class="fc" id="L151">          .option(&quot;mapreduce.fileoutputcommitter.algorithm.version&quot;, &quot;2&quot;)</span>
+<span class="fc" id="L152">          .save(outputCar)</span>
+      }
+    })
+  }
+
+
+<span class="fc" id="L158">  override def run(args: JSONObject): Unit = {</span>
+
+<span class="fc" id="L160">    val bitmapPath = args.getString(&quot;bitmap_path&quot;)</span>
+<span class="fc" id="L161">    val outputPath = args.getString(&quot;output_path&quot;)</span>
+<span class="fc" id="L162">    val ranges = args.getSeq[JSONObject](&quot;ranges&quot;)</span>
+<span class="pc bpc" id="L163" title="1 of 2 branches missed.">      .map(x =&gt; CustomAgeRange(x.getString(&quot;column&quot;), x.getInt(&quot;start_index&quot;), x.getInt(&quot;end_index&quot;)))</span>
+<span class="fc" id="L164">    val partitionAttributeId = args.getString(&quot;partition_attribute_id&quot;)</span>
+<span class="fc" id="L165">    val threadCount = args.getOrElse[Int](&quot;thread_count&quot;, 1)</span>
+<span class="fc" id="L166">    val numPartitions = args.getOrElse[Int](&quot;num_partitions&quot;, 1)</span>
+<span class="fc" id="L167">    val market = args.getOrElse[String](&quot;market&quot;,&quot;US&quot;)</span>
+
+<span class="pc bpc" id="L169" title="3 of 6 branches missed.">    if(market==&quot;US&quot;){</span>
+<span class="fc" id="L170">      generateUS(</span>
+<span class="fc" id="L171">        bitmapPath,</span>
+<span class="fc" id="L172">        ranges,</span>
+<span class="fc" id="L173">        partitionAttributeId,</span>
+<span class="fc" id="L174">        outputPath,</span>
+<span class="fc" id="L175">        threadCount,</span>
+<span class="fc" id="L176">        numPartitions)</span>
+    }else{
+<span class="fc" id="L178">      generate(</span>
+<span class="fc" id="L179">        bitmapPath,</span>
+<span class="fc" id="L180">        ranges,</span>
+<span class="fc" id="L181">        partitionAttributeId,</span>
+<span class="fc" id="L182">        outputPath,</span>
+<span class="fc" id="L183">        threadCount,</span>
+<span class="fc" id="L184">        numPartitions)</span>
+    }
+  }
+}
+
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

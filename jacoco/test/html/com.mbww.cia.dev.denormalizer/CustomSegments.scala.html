@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CustomSegments.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.denormalizer</a> &gt; <span class="el_source">CustomSegments.scala</span></div><h1>CustomSegments.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.denormalizer
+
+import com.mbww.cia.common.Spark._
+import com.mbww.cia.common.utility.Tools
+import com.mbww.cia.common.{Constants, Module, _}
+import org.apache.spark.sql._
+import org.apache.spark.sql.functions.col
+import org.apache.spark.sql.types._
+import org.json._
+
+
+import scala.collection.mutable
+
+<span class="fc" id="L14">class CustomSegments extends Module {</span>
+
+<span class="pc bpc" id="L16" title="39 of 40 branches missed.">  case class ProcessingOptions(csvOptions: mutable.Map[String, String],</span>
+<span class="pc" id="L17">                               parquetOptions: mutable.Map[String, String],</span>
+<span class="pc" id="L18">                               repartitionSize: Int</span>
+                              )
+
+
+  override def run(args: JSONObject): Unit = {
+
+<span class="fc" id="L24">    val inputPath = args.getString(&quot;input_path&quot;)</span>
+<span class="fc" id="L25">    val inputColumns = args.getSeq[String](&quot;columns&quot;)</span>
+<span class="fc" id="L26">    val selectColumns = args.getOrElseSeq[String](&quot;select_columns&quot;, Seq.empty[String])</span>
+<span class="fc" id="L27">    val outputPath = args.getString(&quot;output_path&quot;)</span>
+<span class="fc" id="L28">    val partitionColumns = args.getSeq[String](&quot;partition_by&quot;)</span>
+
+<span class="fc" id="L30">    val csvOptionsArray = args.getSeq[JSONArray](&quot;csv_options&quot;)</span>
+<span class="fc" id="L31">      .map(a =&gt; (a.getString(0), a.getString(1)))</span>
+
+<span class="fc" id="L33">    val parquetOptionsArray = args.getSeq[JSONArray](&quot;parquet_options&quot;)</span>
+<span class="pc" id="L34">      .map(a =&gt; (a.getString(0), a.getString(1)))</span>
+
+<span class="fc" id="L36">    val csvOptions = csvOptionsArray.foldLeft(mutable.Map.empty[String, String])((map, obj) =&gt; map += obj)</span>
+<span class="pc" id="L37">    val parquetOptions = parquetOptionsArray.foldLeft(mutable.Map.empty[String, String])((map, obj) =&gt; map += obj)</span>
+<span class="fc" id="L38">    val repartitionSize = args.getOrElse[Int](&quot;repartition_size&quot;, 0)</span>
+<span class="fc" id="L39">    val attributes: Seq[String] = parseAttributes(args.getString(&quot;attributes&quot;))</span>
+
+<span class="fc" id="L41">    val processingOptions = ProcessingOptions(csvOptions,parquetOptions,repartitionSize)</span>
+
+<span class="fc" id="L43">    generateDenormalizedData(</span>
+<span class="fc" id="L44">      inputPath,</span>
+<span class="fc" id="L45">      inputColumns,</span>
+<span class="fc" id="L46">      outputPath,</span>
+<span class="fc" id="L47">      partitionColumns,</span>
+<span class="fc" id="L48">      processingOptions,</span>
+<span class="fc" id="L49">      selectColumns,</span>
+<span class="fc" id="L50">      attributes)</span>
+  }
+
+  private def generateDenormalizedData(inputPath: String,
+                                       inputColumns: Seq[String],
+                                       outputPath: String,
+                                       partitionColumns: Seq[String],
+                                       processingOptions: ProcessingOptions,
+                                       selectColumns: Seq[String],
+                                       attributes: Seq[String]): Unit = {
+<span class="fc" id="L60">    val targetSchema = getTargetSchema(inputColumns)</span>
+<span class="fc" id="L61">    val customSegmentsDF = readDF(inputPath, processingOptions.csvOptions, targetSchema)</span>
+<span class="fc" id="L62">    customSegmentsDF.show(20, false)</span>
+<span class="fc" id="L63">    val filteredDF = filterByAttributeNameColumn(customSegmentsDF, attributes)</span>
+<span class="fc" id="L64">    val selectedColumnsDF = selectDFColumns(selectColumns, filteredDF)</span>
+<span class="fc" id="L65">    val repartitionedDF = repartitionDF(selectedColumnsDF, processingOptions.repartitionSize)</span>
+<span class="fc" id="L66">    repartitionedDF.show(20, false)</span>
+<span class="fc" id="L67">    repartitionedDF.select(col(&quot;AttributeName&quot;)).distinct().show(false)</span>
+<span class="fc" id="L68">    writeDF(outputPath, partitionColumns, processingOptions.parquetOptions, repartitionedDF)</span>
+  }
+
+  private def selectDFColumns(selectColumns: Seq[String], customSegmentsAttributesDF: DataFrame): DataFrame = {
+<span class="pc bpc" id="L72" title="1 of 2 branches missed.">    if (selectColumns.nonEmpty) customSegmentsAttributesDF.select(selectColumns.map(col): _*) else customSegmentsAttributesDF</span>
+  }
+
+  private def repartitionDF(customSegmentsAttributesDF: DataFrame, repartitionSize: Int): DataFrame = {
+<span class="fc bfc" id="L76" title="All 2 branches covered.">    if (repartitionSize &gt; 0) customSegmentsAttributesDF.repartition(repartitionSize) else customSegmentsAttributesDF</span>
+  }
+
+  def parseAttributes(attributes: String): Seq[String] = {
+<span class="fc" id="L80">    attributes.trim match {</span>
+<span class="fc bfc" id="L81" title="All 2 branches covered.">      case &quot;&quot; =&gt; Nil</span>
+<span class="fc" id="L82">      case att =&gt; att.split(&quot;,&quot;).map(_.trim).toSeq</span>
+    }
+  }
+
+  private def getTargetSchema(inputColumns: Seq[String]): StructType = {
+<span class="fc bfc" id="L87" title="All 2 branches covered.">    if (inputColumns.mkString(&quot;,&quot;).contains(&quot;:&quot;)) {</span>
+<span class="fc" id="L88">      val columnMapping = inputColumns.mkString(&quot;,&quot;)</span>
+<span class="fc" id="L89">      Tools.getStructType(columnMapping, schemaDelimiter = &quot;,&quot;)</span>
+    } else {
+<span class="fc" id="L91">      StructType(inputColumns.map(c =&gt; StructField(c, StringType, nullable = true)).toArray)</span>
+    }
+  }
+
+  private def readDF(inputPath: String,
+                     csvOptions: mutable.Map[String, String],
+                     targetSchema: StructType): DataFrame = {
+<span class="fc" id="L98">    spark</span>
+<span class="fc" id="L99">      .read</span>
+<span class="fc" id="L100">      .option(&quot;mode&quot;, &quot;FAILFAST&quot;)</span>
+<span class="fc" id="L101">      .options(csvOptions)</span>
+<span class="fc" id="L102">      .schema(targetSchema)</span>
+<span class="fc" id="L103">      .format(Constants</span>
+<span class="fc" id="L104">        .CSV_FORMAT_SPEC)</span>
+<span class="fc" id="L105">      .load(inputPath)</span>
+  }
+
+  private def filterByAttributeNameColumn(customSegmentsDF: DataFrame, attributes: Seq[String]): DataFrame = {
+<span class="fc bfc" id="L109" title="All 2 branches covered.">    attributes.size match {</span>
+<span class="fc" id="L110">      case 0 =&gt; customSegmentsDF</span>
+<span class="fc" id="L111">      case _ =&gt; customSegmentsDF.filter(col(&quot;AttributeName&quot;).isin(attributes: _*))</span>
+    }
+  }
+
+  private def writeDF(outputPath: String,
+                      partitionColumns: Seq[String],
+                      parquetOptions: mutable.Map[String, String],
+                      customSegmentsAttributesDF: DataFrame): Unit = {
+<span class="fc" id="L119">    customSegmentsAttributesDF</span>
+<span class="fc" id="L120">      .write</span>
+<span class="fc" id="L121">      .options(parquetOptions)</span>
+<span class="fc" id="L122">      .mode(SaveMode.Overwrite)</span>
+<span class="fc" id="L123">      .partitionBy(partitionColumns: _*)</span>
+<span class="fc" id="L124">      .format(Constants.PARQUET_FORMAT_SPEC)</span>
+<span class="fc" id="L125">      .save(outputPath)</span>
+  }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

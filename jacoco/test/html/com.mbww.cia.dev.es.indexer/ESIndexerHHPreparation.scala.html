@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ESIndexerHHPreparation.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.es.indexer</a> &gt; <span class="el_source">ESIndexerHHPreparation.scala</span></div><h1>ESIndexerHHPreparation.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.es.indexer
+
+import com.mbww.cia.common.Spark.{spark =&gt; ciaSpark}
+import com.mbww.cia.common.Module
+import com.mbww.cia.common._
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.functions._
+import org.json.JSONObject
+
+<span class="nc bnc" id="L10" title="All 37 branches missed.">case class ESIndexerHHPreparationParams(inputPath: String = &quot;&quot;,</span>
+<span class="nc" id="L11">                                        outputPath: String = &quot;&quot;,</span>
+<span class="nc" id="L12">                                        hhName: String = &quot;household_pel&quot;,</span>
+<span class="nc" id="L13">                                        writePartitions: Int = 20) {</span>
+
+<span class="nc" id="L15">  def withInputPath(value: String): ESIndexerHHPreparationParams = this.copy(inputPath = value)</span>
+<span class="nc" id="L16">  def withOutputPath(value: String): ESIndexerHHPreparationParams = this.copy(outputPath = value)</span>
+<span class="nc" id="L17">  def withHhName(value: String): ESIndexerHHPreparationParams = this.copy(hhName = value)</span>
+<span class="nc" id="L18">  def withWritePartitions(value: Int): ESIndexerHHPreparationParams = this.copy(writePartitions = value)</span>
+}
+
+/**
+  * Elastic Search Indexer household preparation.
+  *
+  * This is an additional stage only for household enabled
+  * data sets. Since households are shared among consumers,
+  * this pipeline will group the households again and generate
+  * arrays of unique attribute ids, ready for publishing.
+  */
+<span class="nc" id="L29">class ESIndexerHHPreparation extends Module {</span>
+
+<span class="nc" id="L31">  val spark: SparkSession = ciaSpark</span>
+  import spark.implicits._
+
+  private def process(params: ESIndexerHHPreparationParams): Unit = {
+<span class="nc" id="L35">    val data = spark.read.parquet(params.inputPath)</span>
+<span class="nc" id="L36">    data.groupBy(params.hhName)</span>
+<span class="nc" id="L37">      .agg(array_distinct(flatten(collect_set($&quot;attributes&quot;))).as(&quot;attributes&quot;))</span>
+<span class="nc" id="L38">      .coalesce(params.writePartitions)</span>
+<span class="nc" id="L39">      .write</span>
+<span class="nc" id="L40">      .mode(&quot;overwrite&quot;)</span>
+<span class="nc" id="L41">      .parquet(params.outputPath)</span>
+  }
+
+  override def run(args: JSONObject): Unit = {
+<span class="nc" id="L45">    val defaults = ESIndexerHHPreparationParams()</span>
+<span class="nc" id="L46">    val params = ESIndexerHHPreparationParams()</span>
+<span class="nc" id="L47">      .withInputPath(args.getString(&quot;input_path&quot;))</span>
+<span class="nc" id="L48">      .withOutputPath(args.getString(&quot;output_path&quot;))</span>
+<span class="nc" id="L49">      .withHhName(args.getOrElse[String](&quot;hhid&quot;, defaults.hhName))</span>
+<span class="nc" id="L50">      .withWritePartitions(args.getOrElse[Int](&quot;write_partitions&quot;, defaults.writePartitions))</span>
+
+<span class="nc" id="L52">    process(params)</span>
+  }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

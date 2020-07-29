@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>BitmapCount.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.taxonomy</a> &gt; <span class="el_source">BitmapCount.scala</span></div><h1>BitmapCount.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.taxonomy
+
+import com.mbww.cia.common.Spark._
+import com.mbww.cia.common.{Module, _}
+import org.apache.spark.sql.SaveMode
+import org.apache.spark.sql.functions._
+import org.json.JSONObject
+
+
+import scala.collection.Seq
+
+object BitmapCount {
+
+<span class="fc" id="L14">  val ATTRIBUTE_ID = &quot;Attribute Id&quot;</span>
+<span class="pc" id="L15">  val DISPLAY_NAME = &quot;Display Name&quot;</span>
+<span class="fc" id="L16">  val BITMAP_TYPE = &quot;Bitmap Type&quot;</span>
+<span class="fc" id="L17">  val MBID_BITMAP_PATH = &quot;MBID Bitmap Path&quot;</span>
+<span class="fc" id="L18">  val MBID_COUNT = &quot;MBID Count&quot;</span>
+<span class="fc" id="L19">  val HHID_BITMAP_PATH = &quot;HHID Bitmap Path&quot;</span>
+<span class="fc" id="L20">  val HHID_COUNT = &quot;HHID Count&quot;</span>
+
+<span class="pc" id="L22">  val idIndex = 0</span>
+
+<span class="pc" id="L24">  val csvHeader = Seq(</span>
+<span class="fc" id="L25">    ATTRIBUTE_ID,</span>
+<span class="fc" id="L26">    BITMAP_TYPE,</span>
+<span class="fc" id="L27">    MBID_BITMAP_PATH,</span>
+<span class="fc" id="L28">    MBID_COUNT,</span>
+<span class="fc" id="L29">    HHID_BITMAP_PATH,</span>
+<span class="fc" id="L30">    HHID_COUNT)</span>
+}
+
+<span class="fc" id="L33">class BitmapCount extends Module {</span>
+
+<span class="fc" id="L35">  def getTaxonomyDF(paths: Seq[(String, String, String)], attributeId: String, threadCount: Int = 1) = {</span>
+
+<span class="fc" id="L37">    val sp = spark</span>
+    import sp.implicits._
+
+<span class="fc" id="L40">    val counts = paths.map(p =&gt; {</span>
+<span class="fc" id="L41">      getBitmapCount(p._1, attributeId)</span>
+<span class="fc" id="L42">        .withColumn(Constants.BITMAP_TYPE, lit(p._3))</span>
+<span class="fc" id="L43">        .withColumn(Constants.BITMAP_PATH, concat(lit(p._2), lit(&quot;/&quot;), lit(attributeId), lit(&quot;=&quot;), col(attributeId), lit(&quot;/&quot;)))</span>
+    })
+<span class="fc" id="L45">    val emptyDf = Seq.empty[(String, String, String, String)].toDF(attributeId, Constants.BITMAP_COUNT, Constants.BITMAP_TYPE, Constants.BITMAP_PATH)</span>
+<span class="fc" id="L46">    counts.foldLeft(emptyDf)((acc, df) =&gt; acc.union(df))</span>
+  }
+
+  def generate(mbidPaths: Seq[(String, String, String)],
+               hhidPaths: Seq[(String, String, String)],
+               outputFile: String,
+               temporaryPath: String,
+               attributeId: String,
+               filterExpression :String,
+               unqDupMapping: Boolean) = {
+
+<span class="fc" id="L57">    val mbidcounts = getTaxonomyDF(mbidPaths, attributeId)</span>
+<span class="fc" id="L58">    val hhidcounts = getTaxonomyDF(hhidPaths, attributeId)</span>
+
+<span class="fc" id="L60">    val getChooseNonNull = (mbid_attr: String, hhidAttr: String) =&gt; {</span>
+<span class="pc bpc" id="L61" title="1 of 2 branches missed.">      if (mbid_attr != null) mbid_attr else hhidAttr</span>
+    }
+<span class="fc" id="L63">    val getChooseNonNullUDF = udf(getChooseNonNull)</span>
+
+<span class="fc" id="L65">    val tmpPath = concatToPath(temporaryPath, s&quot;bitmap_count_${System.currentTimeMillis()}&quot;)</span>
+
+<span class="fc" id="L67">    val mbidHhidCounts = mbidcounts</span>
+<span class="fc" id="L68">      .join(hhidcounts, mbidcounts(attributeId) === hhidcounts(attributeId), &quot;full_outer&quot;)</span>
+<span class="fc" id="L69">      .select(</span>
+<span class="fc" id="L70">        getChooseNonNullUDF(mbidcounts(attributeId), hhidcounts(attributeId)).as(BitmapCount.ATTRIBUTE_ID),</span>
+<span class="fc" id="L71">        getChooseNonNullUDF(mbidcounts(Constants.BITMAP_TYPE), hhidcounts(Constants.BITMAP_TYPE)).as(BitmapCount.BITMAP_TYPE),</span>
+<span class="fc" id="L72">        mbidcounts(Constants.BITMAP_PATH).as(BitmapCount.MBID_BITMAP_PATH),</span>
+<span class="fc" id="L73">        mbidcounts(Constants.BITMAP_COUNT).as(BitmapCount.MBID_COUNT),</span>
+<span class="fc" id="L74">        hhidcounts(Constants.BITMAP_PATH).as(BitmapCount.HHID_BITMAP_PATH),</span>
+<span class="fc" id="L75">        hhidcounts(Constants.BITMAP_COUNT).as(BitmapCount.HHID_COUNT))</span>
+<span class="fc" id="L76">      .filter(filterExpression)</span>
+
+<span class="fc bfc" id="L78" title="All 2 branches covered.">    (if(unqDupMapping) {</span>
+
+<span class="fc" id="L80">      val idsToFilter = mbidHhidCounts.select(&quot;Attribute Id&quot;, &quot;Bitmap Type&quot;)</span>
+<span class="fc" id="L81">        .groupBy(&quot;Attribute Id&quot;)</span>
+<span class="fc" id="L82">        .agg(count(&quot;*&quot;).alias(&quot;count&quot;))</span>
+<span class="fc" id="L83">        .filter(col(&quot;count&quot;) =!= 2)</span>
+
+<span class="fc" id="L85">      mbidHhidCounts</span>
+<span class="fc" id="L86">        .join(idsToFilter, Seq(&quot;Attribute Id&quot;), &quot;left_anti&quot;)</span>
+    }
+    else {
+<span class="fc" id="L89">      mbidHhidCounts</span>
+    })
+<span class="fc" id="L91">      .repartition(1)</span>
+<span class="fc" id="L92">      .write</span>
+<span class="fc" id="L93">      .mode(SaveMode.Overwrite)</span>
+<span class="fc" id="L94">      .option(&quot;delimiter&quot;, &quot;\t&quot;)</span>
+<span class="fc" id="L95">      .option(&quot;header&quot;, &quot;true&quot;)</span>
+<span class="fc" id="L96">      .option(&quot;mapreduce.fileoutputcommitter.marksuccessfuljobs&quot;, &quot;false&quot;)</span>
+<span class="fc" id="L97">      .format(Constants.CSV_FORMAT_SPEC)</span>
+<span class="fc" id="L98">      .save(tmpPath)</span>
+
+<span class="fc" id="L100">    val paths = listAllPaths(tmpPath)</span>
+<span class="fc" id="L101">    val partFile = paths(0).toString</span>
+<span class="fc" id="L102">    copyFile(partFile, outputFile)</span>
+  }
+
+  override def run(args: JSONObject): Unit = {
+
+<span class="fc" id="L107">    val mbidPaths = args.getSeq[JSONObject](&quot;mbid_paths&quot;)</span>
+<span class="fc" id="L108">      .map(obj =&gt; (obj.getString(&quot;path&quot;), obj.getString(&quot;relative&quot;), obj.getString(&quot;type&quot;)))</span>
+<span class="fc" id="L109">    val hhidpaths = args.getSeq[JSONObject](&quot;hhid_paths&quot;)</span>
+<span class="pc" id="L110">      .map(obj =&gt; (obj.getString(&quot;path&quot;), obj.getString(&quot;relative&quot;), obj.getString(&quot;type&quot;)))</span>
+<span class="fc" id="L111">    val outputFile = args.getString(&quot;output_file&quot;)</span>
+<span class="fc" id="L112">    val partitionAttributeId = args.getString(&quot;partition_attribute_id&quot;)</span>
+<span class="fc" id="L113">    val temporaryPath = args.getOrElse[String](&quot;temporary_path&quot;, &quot;/__CIA__tmp__/&quot;)</span>
+<span class="fc" id="L114">    val filterExpression = args.getOrElse[String](&quot;filter_expression&quot;,&quot;1=1&quot;)</span>
+<span class="fc" id="L115">    val unqDupMapping = args.getOrElse[Boolean](&quot;unq_dup_mapping&quot;,false)</span>
+
+<span class="fc" id="L117">    generate(</span>
+<span class="fc" id="L118">      mbidPaths,</span>
+<span class="fc" id="L119">      hhidpaths,</span>
+<span class="fc" id="L120">      outputFile,</span>
+<span class="fc" id="L121">      temporaryPath,</span>
+<span class="fc" id="L122">      partitionAttributeId,</span>
+<span class="fc" id="L123">      filterExpression,</span>
+<span class="fc" id="L124">      unqDupMapping)</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

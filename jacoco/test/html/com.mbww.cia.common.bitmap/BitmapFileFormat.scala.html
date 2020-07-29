@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>BitmapFileFormat.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.common.bitmap</a> &gt; <span class="el_source">BitmapFileFormat.scala</span></div><h1>BitmapFileFormat.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.common.bitmap
+
+import java.io._
+
+import com.esotericsoftware.kryo.io.{Input, Output}
+import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
+import BitmapFileFormat.SerializableConfiguration
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.{FileStatus, Path}
+import org.apache.hadoop.mapreduce.{Job, TaskAttemptContext}
+import org.apache.spark.TaskContext
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.UnsafeRow
+import org.apache.spark.sql.catalyst.expressions.codegen.{BufferHolder, UnsafeRowWriter}
+import org.apache.spark.sql.catalyst.util.CompressionCodecs
+import org.apache.spark.sql.execution.datasources._
+import org.apache.spark.sql.sources.{DataSourceRegister, Filter}
+import org.apache.spark.sql.types.{IntegerType, StructType}
+import org.slf4j.LoggerFactory
+
+import scala.util.control.NonFatal
+
+/**
+  * A file format for reading/writing roaring bitmaps.
+  */
+<span class="pc" id="L27">class BitmapFileFormat extends FileFormat with DataSourceRegister {</span>
+
+  override def inferSchema(sparkSession: SparkSession,
+                           options: Map[String, String],
+                           files: Seq[FileStatus]): Option[StructType] =
+<span class="fc" id="L32">    Some(new StructType().add(BitmapFileFormat.IndexColumn, IntegerType))</span>
+
+  override def prepareWrite(sparkSession: SparkSession,
+                            job: Job,
+                            options: Map[String, String],
+                            dataSchema: StructType): OutputWriterFactory = {
+<span class="fc" id="L38">    val bitmapIndexOrdinal = options.getOrElse(BitmapFileFormat.BitmapIndicesOrdinal, &quot;0&quot;).toInt</span>
+<span class="fc" id="L39">    val bitmapMaxWriteAttempts = options.getOrElse(BitmapFileFormat.MaxWriteAttempts, &quot;5&quot;).toInt</span>
+<span class="fc" id="L40">    val bitmapWriterBatchSize = options.getOrElse(BitmapFileFormat.BitmapWriterBatchSize, &quot;1000000000&quot;).toInt</span>
+<span class="fc" id="L41">    verifySchema(dataSchema, bitmapIndexOrdinal)</span>
+
+<span class="fc" id="L43">    val conf = job.getConfiguration</span>
+<span class="pc" id="L44">    options.get(&quot;compression&quot;).map(CompressionCodecs.getCodecClassName).foreach { codec =&gt;</span>
+<span class="nc" id="L45">      CompressionCodecs.setCodecConfiguration(conf, codec)</span>
+    }
+
+<span class="fc" id="L48">    new OutputWriterFactory {</span>
+      override def newInstance(path: String,
+                               dataSchema: StructType,
+                               context: TaskAttemptContext): OutputWriter = {
+<span class="fc" id="L52">        new BitmapOutputWriter(path, bitmapIndexOrdinal, bitmapMaxWriteAttempts, bitmapWriterBatchSize, context)</span>
+      }
+
+      override def getFileExtension(context: TaskAttemptContext): String = {
+<span class="fc" id="L56">        &quot;.rb&quot; + CodecStreams.getCompressionExtension(context)</span>
+      }
+    }
+  }
+
+<span class="fc" id="L61">  private def verifySchema(schema: StructType, indexOrdinal: Int): Unit = {</span>
+<span class="pc bpc" id="L62" title="2 of 4 branches missed.">    if (indexOrdinal &gt;= schema.size || indexOrdinal &lt; 0) {</span>
+<span class="nc" id="L63">      throw new RuntimeException(</span>
+<span class="nc" id="L64">        s&quot;Ordinal ${indexOrdinal} is not valid for a schema of ${schema.size} columns.&quot;)</span>
+    }
+<span class="fc" id="L66">    val tpe = schema(indexOrdinal).dataType</span>
+<span class="pc bpc" id="L67" title="4 of 6 branches missed.">    if (tpe != IntegerType) {</span>
+<span class="nc" id="L68">      throw new RuntimeException(</span>
+<span class="nc" id="L69">        s&quot;Bitmap data source supports an IntegerType column @ ordinal(${indexOrdinal}), but you have ${tpe}.&quot;)</span>
+    }
+  }
+
+  override def buildReader(sparkSession: SparkSession,
+                           dataSchema: StructType,
+                           partitionSchema: StructType,
+                           requiredSchema: StructType,
+                           filters: Seq[Filter],
+                           options: Map[String, String],
+                           hadoopConf: Configuration): PartitionedFile =&gt; Iterator[InternalRow] = {
+<span class="fc" id="L80">    assert(</span>
+<span class="pc bpc" id="L81" title="1 of 2 branches missed.">      requiredSchema.length &lt;= 1,</span>
+<span class="pc" id="L82">      s&quot;&quot;&quot;Bitmap data source only produces one data column named &quot;${BitmapFileFormat.IndexColumn}&quot;.&quot;&quot;&quot;)</span>
+
+<span class="fc" id="L84">    val broadcastedHadoopConf = sparkSession.sparkContext.broadcast(new SerializableConfiguration(hadoopConf))</span>
+<span class="fc" id="L85">    val isBlankFile = requiredSchema.isEmpty</span>
+
+<span class="fc" id="L87">    (file: PartitionedFile) =&gt; {</span>
+<span class="fc" id="L88">      val reader = new BitmapFileReader(file, broadcastedHadoopConf.value.value)</span>
+<span class="pc bpc" id="L89" title="1 of 2 branches missed.">      Option(TaskContext.get()).foreach(_.addTaskCompletionListener(_ =&gt; reader.close()))</span>
+
+<span class="fc bfc" id="L91" title="All 2 branches covered.">      if (isBlankFile) {</span>
+<span class="fc" id="L92">        val emptyUnsafeRow = new UnsafeRow(0)</span>
+<span class="fc" id="L93">        reader.map(_ =&gt; emptyUnsafeRow)</span>
+      } else {
+<span class="fc" id="L95">        val currentRow = new UnsafeRow(1)</span>
+<span class="fc" id="L96">        val bufferHolder = new BufferHolderOld(currentRow)</span>
+<span class="fc" id="L97">        val writer = new UnsafeRowWriterOld(bufferHolder, 1)</span>
+
+<span class="fc" id="L99">        reader.map(writable =&gt; {</span>
+<span class="fc" id="L100">          bufferHolder.reset()</span>
+<span class="fc" id="L101">          writer.write(0, writable.get())</span>
+<span class="fc" id="L102">          currentRow.setTotalSize(bufferHolder.totalSize())</span>
+<span class="fc" id="L103">          currentRow</span>
+        })
+      }
+    }
+  }
+
+<span class="fc" id="L109">  override def shortName(): String = &quot;bitmap&quot;</span>
+
+  override def isSplitable(sparkSession: SparkSession,
+                           options: Map[String, String],
+<span class="fc" id="L113">                           path: Path): Boolean = false</span>
+}
+
+object BitmapFileFormat {
+<span class="fc" id="L117">  val BitmapIndicesOrdinal = &quot;bitmap.index.ordinal&quot;</span>
+<span class="fc" id="L118">  val MaxWriteAttempts = &quot;bitmap.max.write.attempts&quot;</span>
+<span class="fc" id="L119">  val BitmapWriterBatchSize = &quot;bitmap.writer.batchSize&quot;</span>
+<span class="fc" id="L120">  val IndexColumn = &quot;bitmap_index&quot;</span>
+<span class="fc" id="L121">  val BinaryColumn = &quot;bitmap&quot;</span>
+
+  /**
+    * A serializable hadoop configuration.
+    * @param value The configuration to serialize.
+    */
+<span class="pc" id="L127">  class SerializableConfiguration(@transient var value: Configuration)</span>
+<span class="fc" id="L128">    extends Serializable with KryoSerializable {</span>
+<span class="nc bnc" id="L129" title="All 4 branches missed.">    @transient private lazy val log = LoggerFactory.getLogger(getClass)</span>
+
+    def write(kryo: Kryo, out: Output): Unit = {
+<span class="nc" id="L132">      val dos = new DataOutputStream(out)</span>
+<span class="nc" id="L133">      value.write(dos)</span>
+<span class="nc" id="L134">      dos.flush()</span>
+    }
+
+    def read(kryo: Kryo, in: Input): Unit = {
+<span class="nc" id="L138">      value = new Configuration(false)</span>
+<span class="nc" id="L139">      value.readFields(new DataInputStream(in))</span>
+    }
+
+<span class="pc bpc" id="L142" title="1 of 2 branches missed.">    private def writeObject(out: ObjectOutputStream): Unit = tryOrIOException {</span>
+<span class="fc" id="L143">      out.defaultWriteObject()</span>
+<span class="fc" id="L144">      value.write(out)</span>
+    }
+
+    private def tryOrIOException[T](block: =&gt; T): T = {
+<span class="pc" id="L148">      try {</span>
+<span class="fc" id="L149">        block</span>
+      } catch {
+<span class="nc bnc" id="L151" title="All 2 branches missed.">        case e: IOException =&gt;</span>
+<span class="nc" id="L152">          log.error(&quot;Exception encountered&quot;, e)</span>
+<span class="nc" id="L153">          throw e</span>
+<span class="nc bnc" id="L154" title="All 2 branches missed.">        case NonFatal(e) =&gt;</span>
+<span class="nc" id="L155">          log.error(&quot;Exception encountered&quot;, e)</span>
+<span class="nc" id="L156">          throw new IOException(e)</span>
+      }
+    }
+
+<span class="nc bnc" id="L160" title="All 2 branches missed.">    private def readObject(in: ObjectInputStream): Unit = tryOrIOException {</span>
+<span class="nc" id="L161">      value = new Configuration(false)</span>
+<span class="nc" id="L162">      value.readFields(in)</span>
+    }
+  }
+}
+<span class="fc" id="L166"></span>
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

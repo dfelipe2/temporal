@@ -1,0 +1,457 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>BitmapFileValidation.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.qa.bitmap</a> &gt; <span class="el_source">BitmapFileValidation.scala</span></div><h1>BitmapFileValidation.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.qa.bitmap
+
+import java.io._
+
+import com.amazonaws.services.s3.AmazonS3
+import com.amazonaws.services.s3.model.GetObjectRequest
+import com.mbww.cia.common.{Module, _}
+import com.mbww.cia.qa.utils.UtilsFunction._
+import com.mbww.cia.qa.utils.{BitmapFile, FileData, Setup, UtilsFunction}
+import org.json.JSONObject
+import org.slf4j.LoggerFactory
+
+import scala.collection.parallel.ForkJoinTaskSupport
+import scala.concurrent.forkjoin
+
+<span class="nc" id="L16">class BitmapFileValidation  extends Module  {</span>
+<span class="nc" id="L17">  val logger = LoggerFactory.getLogger(&quot;CIA Pipeline&quot;)</span>
+
+<span class="nc" id="L19">  def headerValidation(awsS3Client: AmazonS3, setup:Setup,dataSetFileData: Any, delimiter: String = &quot;\t&quot;): Boolean = {</span>
+<span class="nc" id="L20">    val dataSetType=dataSetFileData.toString.split(delimiter)(3)</span>
+<span class="nc bnc" id="L21" title="All 2 branches missed.">    if(!dataSetType.equals(&quot;Custom Attr&quot;))</span>
+    {
+<span class="nc" id="L23">      try {</span>
+<span class="nc" id="L24">        val bitmapFilePath = setup.bitmapFilePath(dataSetFileData.toString.split(delimiter)(6), dataSetFileData.toString.split(delimiter)(8), dataSetFileData.toString.split(delimiter)(13))</span>
+<span class="nc bnc" id="L25" title="All 63 branches missed.">        case class actualDataSetHeader(attributeId: String, bitmapType: String, mbidBitmapPath: String, mbidCount: String, hhidBitmapPath: String, hhidCount: String)</span>
+<span class="nc" id="L26">        val expectedValue =   BitmapFile.BitMapHeader()</span>
+<span class="nc" id="L27">        var line = &quot;&quot;</span>
+<span class="nc" id="L28">        val s3Object = awsS3Client.getObject(new GetObjectRequest(setup.bucketName, bitmapFilePath.drop(1)))</span>
+<span class="nc" id="L29">        val reader = new BufferedReader(new InputStreamReader(s3Object.getObjectContent))</span>
+<span class="nc bnc" id="L30" title="All 2 branches missed.">        if (!((line = reader.readLine).equals(null))) {</span>
+<span class="nc" id="L31">          var data = line.split(delimiter)</span>
+<span class="nc bnc" id="L32" title="All 2 branches missed.">          if (!(expectedValue.productIterator.length == data.length)) {</span>
+<span class="nc" id="L33">            logger.info(&quot;########### header length is not correct ,length is  ########### &quot; + data.length)</span>
+<span class="nc" id="L34">            return false</span>
+          }
+<span class="nc" id="L36">          logger.info(&quot;########### header length is  correct ,length is  ########### &quot; + data.length)</span>
+<span class="nc" id="L37">          var actualValue = actualDataSetHeader(data(0), data(1), data(2), data(3), data(4), data(5))</span>
+<span class="nc bnc" id="L38" title="All 2 branches missed.">          if (!(actualValue.attributeId.equals(expectedValue.attributeId))) {</span>
+<span class="nc" id="L39">            logger.info(&quot;########### header name  attributeId is not present ########### &quot;)</span>
+<span class="nc" id="L40">            return false</span>
+          }
+<span class="nc" id="L42">          logger.info(&quot;########### header name   attributeId  is  present ########### &quot;)</span>
+<span class="nc bnc" id="L43" title="All 2 branches missed.">          if (!(actualValue.bitmapType.equals(expectedValue.bitmapType))) {</span>
+<span class="nc" id="L44">            logger.info(&quot;########### header name  bitmapType is not present ########### &quot;)</span>
+<span class="nc" id="L45">            return false</span>
+          }
+<span class="nc" id="L47">          logger.info(&quot;########### header name   bitmapType is  present ########### &quot;)</span>
+
+<span class="nc bnc" id="L49" title="All 2 branches missed.">          if (!(actualValue.mbidBitmapPath.equals(expectedValue.mbidBitmapPath))) {</span>
+<span class="nc" id="L50">            logger.info(&quot;########### header name  mbidBitmapPath is not present ########### &quot;)</span>
+<span class="nc" id="L51">            return false</span>
+          }
+<span class="nc" id="L53">          logger.info(&quot;########### header name   mbidBitmapPath is  present ########### &quot;)</span>
+<span class="nc bnc" id="L54" title="All 2 branches missed.">          if (!(actualValue.mbidCount.equals(expectedValue.mbidCount))) {</span>
+<span class="nc" id="L55">            logger.info(&quot;########### header name  mbidCount is not present ########### &quot;)</span>
+<span class="nc" id="L56">            return false</span>
+          }
+<span class="nc" id="L58">          logger.info(&quot;########### header name  mbidCount is  present ########### &quot;)</span>
+<span class="nc bnc" id="L59" title="All 2 branches missed.">          if (!(actualValue.hhidBitmapPath.equals(expectedValue.hhidBitmapPath))) {</span>
+<span class="nc" id="L60">            logger.info(&quot;########### header name  hhidBitmapPath not present ########### &quot;)</span>
+<span class="nc" id="L61">            return false</span>
+          }
+<span class="nc" id="L63">          logger.info(&quot;########### header name   hhidBitmapPath is  present ########### &quot;)</span>
+<span class="nc bnc" id="L64" title="All 2 branches missed.">          if (!(actualValue.hhidCount.equals(expectedValue.hhidCount))) {</span>
+<span class="nc" id="L65">            logger.info(&quot;########### header name  hhidCount is not present ########### &quot;)</span>
+<span class="nc" id="L66">            return false</span>
+          }
+<span class="nc" id="L68">          logger.info(&quot;########### header name   hhidCount is  present ########### &quot;)</span>
+
+        }
+
+      }
+      catch {
+        // Handle exceptions.
+        case exp: FileNotFoundException =&gt;
+<span class="nc" id="L76">          logger.info(&quot;################### file is not present   &quot; + exp)</span>
+<span class="nc" id="L77">          return false</span>
+        case exp: ArrayIndexOutOfBoundsException =&gt;
+<span class="nc" id="L79">          logger.info(&quot;################### ArrayIndexOutOfBoundsException  &quot; + exp)</span>
+<span class="nc" id="L80">          return false</span>
+        case exp: NullPointerException =&gt;
+<span class="nc" id="L82">          logger.info(&quot;null pointer  &quot; + exp)</span>
+<span class="nc" id="L83">          return false</span>
+      }
+<span class="nc" id="L85">      logger.info(&quot;------------------ Bitmap File  Header Validation Pass , All Header are present  --------------------------&quot;)</span>
+<span class="nc" id="L86"> return  true</span>
+    }
+
+<span class="nc" id="L89">    logger.info(&quot;------------------ Bitmap File  will not be tested for custom Attr--------------------------&quot;)</span>
+<span class="nc" id="L90">    true</span>
+
+  }
+
+<span class="nc" id="L94">  def specialCharacterValidation(awsS3Client: AmazonS3,setup:Setup, dataSetFileData: Any, delimiter: String = &quot;\t&quot;): Boolean = {</span>
+<span class="nc" id="L95">    var bitmapFilePath=&quot;&quot;</span>
+<span class="nc" id="L96">    val dataSetType=dataSetFileData.toString.split(delimiter)(3)</span>
+
+<span class="nc" id="L98">    try {</span>
+<span class="nc" id="L99">      bitmapFilePath = setup.bitmapFilePath(dataSetFileData.toString.split(delimiter)(6), dataSetFileData.toString.split(delimiter)(8), dataSetFileData.toString.split(delimiter)(13)).drop(1)</span>
+<span class="nc" id="L100">      UtilsFunction.specialCharacterValidation(awsS3Client, setup,bitmapFilePath)</span>
+    }
+    catch {
+      case exp: ArrayIndexOutOfBoundsException =&gt;
+<span class="nc bnc" id="L104" title="All 2 branches missed.">        if(dataSetType.equals(&quot;Custom Attr&quot;))</span>
+        {
+<span class="nc" id="L106">          logger.info(&quot;################### bitmap file path is empty for Custom Attr &quot;)</span>
+<span class="nc" id="L107">          return true</span>
+        }
+        else
+<span class="nc" id="L110">          return false</span>
+    }
+
+  }
+
+<span class="nc bnc" id="L115" title="All 2 branches missed.">  def mbidPathValidation(awsS3Client: AmazonS3, setup:Setup,dataSetFileData: Any, delimiter: String = &quot;\t&quot;): Boolean = {</span>
+<span class="nc" id="L116">    val dataSetType=dataSetFileData.toString.split(delimiter)(3)</span>
+<span class="nc bnc" id="L117" title="All 2 branches missed.">    if(!dataSetType.equals(&quot;Custom Attr&quot;)) {</span>
+<span class="nc" id="L118">      try {</span>
+<span class="nc" id="L119">        val bitmapFilePath = setup.bitmapFilePath(dataSetFileData.toString.split(delimiter)(6), dataSetFileData.toString.split(delimiter)(8), dataSetFileData.toString.split(delimiter)(13)).drop(1)</span>
+<span class="nc" id="L120">        val lineIterator = getLinesFromFile(&quot;s3://&quot; + setup.bucketName + &quot;/&quot; + bitmapFilePath, awsS3Client)</span>
+<span class="nc" id="L121">        lineIterator.drop(1)</span>
+<span class="nc bnc" id="L122" title="All 2 branches missed.">        for (i &lt;- lineIterator) {</span>
+<span class="nc" id="L123">          val data = i.split(delimiter)</span>
+<span class="nc bnc" id="L124" title="All 2 branches missed.">          if ((data(2).equals(&quot;&quot;))) {</span>
+<span class="nc" id="L125">            logger.info(&quot;########### path can not be blank ########### &quot;)</span>
+<span class="nc" id="L126">            return false</span>
+          }
+<span class="nc bnc" id="L128" title="All 2 branches missed.">          if (data(1).equals(&quot;UNQ&quot;)) {</span>
+<span class="nc bnc" id="L129" title="All 2 branches missed.">            if (!(data(2).contains(&quot;unique&quot;))) {</span>
+<span class="nc" id="L130">              logger.info(&quot;########### Bitmap Type UNQ is  not same as mbid path ########### &quot; + data(0))</span>
+<span class="nc" id="L131">              return false</span>
+            }
+          }
+<span class="nc bnc" id="L134" title="All 2 branches missed.">          if (data(1).equals(&quot;DUP&quot;)) {</span>
+<span class="nc bnc" id="L135" title="All 2 branches missed.">            if (!(data(2).contains(&quot;duplicate&quot;))) {</span>
+<span class="nc" id="L136">              logger.info(&quot;########### Bitmap Type DUP is  not same as mbid path ########### &quot; + data(0))</span>
+<span class="nc" id="L137">              return false</span>
+            }
+          }
+<span class="nc bnc" id="L140" title="All 2 branches missed.">          if (data(1).equals(&quot;ALL&quot;)) {</span>
+<span class="nc bnc" id="L141" title="All 2 branches missed.">            if (!(data(2).equals(&quot;unique/ALL/&quot;))) {</span>
+<span class="nc" id="L142">              logger.info(&quot;########### Bitmap Type ALL is  not same as mbid path ########### &quot;)</span>
+<span class="nc" id="L143">              return false</span>
+            }
+          }
+
+        }
+<span class="nc" id="L148">        true</span>
+      }
+      catch {
+        case exp: FileNotFoundException =&gt;
+<span class="nc" id="L152">          logger.info(&quot;################### file is not present   &quot; + exp)</span>
+<span class="nc" id="L153">          return false</span>
+        case exp: ArrayIndexOutOfBoundsException =&gt;
+<span class="nc" id="L155">          logger.info(&quot;################### Array Index OutOf Bounds Exception  &quot; + exp)</span>
+<span class="nc" id="L156">          return false</span>
+        case exp: NullPointerException =&gt;
+<span class="nc" id="L158">          logger.info(&quot;null pointer  &quot; + exp)</span>
+<span class="nc" id="L159">          return false</span>
+      }
+    }
+    else
+<span class="nc" id="L163">      logger.info(&quot;------------------ Bitmap File  will not be tested for custom Attr--------------------------&quot;)</span>
+<span class="nc" id="L164">    true</span>
+  }
+
+
+<span class="nc" id="L168">  def mbidPathAreUnique(awsS3Client: AmazonS3,setup:Setup, dataSetFileData: Any, delimiter: String = &quot;\t&quot;): Boolean = {</span>
+
+<span class="nc" id="L170">    val dataSetType=dataSetFileData.toString.split(delimiter)(3)</span>
+<span class="nc bnc" id="L171" title="All 2 branches missed.">    if(!dataSetType.equals(&quot;Custom Attr&quot;)) {</span>
+<span class="nc" id="L172">      val bitmapFilePath = setup.bitmapFilePath(dataSetFileData.toString.split(delimiter)(6), dataSetFileData.toString.split(delimiter)(8), dataSetFileData.toString.split(delimiter)(13)).drop(1)</span>
+<span class="nc" id="L173">      val mbidPathValue = UtilsFunction.getColumnFromFile(awsS3Client, &quot;s3://&quot; + setup.bucketName + &quot;/&quot; + bitmapFilePath, 2)</span>
+<span class="nc bnc" id="L174" title="All 6 branches missed.">      if (!(mbidPathValue.distinct == mbidPathValue)) {</span>
+<span class="nc" id="L175">        logger.info(&quot;################### MBID path are not unique ########## &quot;)</span>
+<span class="nc" id="L176">       return false</span>
+      }
+      else
+<span class="nc" id="L179">      logger.info(&quot;################### MBID path are  unique ########## &quot;)</span>
+<span class="nc" id="L180">      return true</span>
+    }
+    else
+<span class="nc" id="L183">      logger.info(&quot;------------------ Bitmap File  will not be tested for custom Attr--------------------------&quot;)</span>
+<span class="nc" id="L184">    true</span>
+  }
+
+<span class="nc" id="L187">  def hhidPathAreUnique(awsS3Client: AmazonS3, setup:Setup,dataSetFileData: Any, delimiter: String = &quot;\t&quot;): Boolean = {</span>
+<span class="nc" id="L188">    val dataSetType=dataSetFileData.toString.split(delimiter)(3)</span>
+<span class="nc bnc" id="L189" title="All 2 branches missed.">    if(!dataSetType.equals(&quot;Custom Attr&quot;))</span>
+    {
+<span class="nc bnc" id="L191" title="All 8 branches missed.">      if (!(setup.market.toUpperCase.equals(&quot;UK&quot;)|| setup.market.toUpperCase.equals(&quot;AU&quot;) || setup.market.toUpperCase.equals(&quot;MX&quot;)||setup.market.toUpperCase.equals(&quot;JP&quot;)))</span>
+      {
+<span class="nc" id="L193">        val bitmapFilePath = setup.bitmapFilePath(dataSetFileData.toString.split(delimiter)(6), dataSetFileData.toString.split(delimiter)(8), dataSetFileData.toString.split(delimiter)(13)).drop(1)</span>
+<span class="nc" id="L194">        val hhidPathValue = UtilsFunction.getColumnFromFile(awsS3Client, &quot;s3://&quot; + setup.bucketName + &quot;/&quot; + bitmapFilePath, 4)</span>
+<span class="nc bnc" id="L195" title="All 6 branches missed.">        if (!(hhidPathValue.distinct == hhidPathValue)) {</span>
+<span class="nc" id="L196">          logger.info(&quot;################### HHID path are not unique ########## &quot;)</span>
+<span class="nc" id="L197">           return false</span>
+        }
+        else
+<span class="nc" id="L200">        logger.info(&quot;################### HHID path are  unique ########## &quot;)</span>
+<span class="nc" id="L201">         return  true</span>
+      }
+      else {
+<span class="nc" id="L204">        logger.info(&quot;################### HHID is not tested for UK,MX,JP and AU market    ########## &quot;)</span>
+<span class="nc" id="L205">        return true</span>
+      }
+    }
+    else
+<span class="nc" id="L209">      logger.info(&quot;------------------ Bitmap File  will not be tested for custom Attr--------------------------&quot;)</span>
+<span class="nc" id="L210">    true</span>
+  }
+
+<span class="nc" id="L213">  def bitmapTypeValueValidation(awsS3Client: AmazonS3,setup:Setup, dataSetFileData: Any, delimiter: String = &quot;\t&quot;): Boolean = {</span>
+<span class="nc" id="L214">    val dataSetType=dataSetFileData.toString.split(delimiter)(3)</span>
+<span class="nc bnc" id="L215" title="All 2 branches missed.">    if(!dataSetType.equals(&quot;Custom Attr&quot;)) {</span>
+<span class="nc" id="L216">      val bitmapFilePath = setup.bitmapFilePath(dataSetFileData.toString.split(delimiter)(6), dataSetFileData.toString.split(delimiter)(8), dataSetFileData.toString.split(delimiter)(13)).drop(1)</span>
+<span class="nc" id="L217">      val distinctbitmapTypeValue = UtilsFunction.getColumnFromFile(awsS3Client, &quot;s3://&quot; + setup.bucketName + &quot;/&quot; + bitmapFilePath, 1).distinct</span>
+<span class="nc" id="L218">      val expecteddistinctbitmapTypeValue: List[String] = List(&quot;ALL&quot;, &quot;UNQ&quot;, &quot;DUP&quot;, &quot;MLD-UNQ&quot;, &quot;MLD-DUP&quot;)</span>
+<span class="nc" id="L219">      val differenceBitmapType = distinctbitmapTypeValue diff expecteddistinctbitmapTypeValue</span>
+
+
+<span class="nc bnc" id="L222" title="All 2 branches missed.">      if (!(differenceBitmapType.length == 0)) {</span>
+<span class="nc" id="L223">        logger.info(&quot;############################### distinct bitmap value are not correct ##### :- &quot;)</span>
+<span class="nc" id="L224">        return false</span>
+      }
+<span class="nc" id="L226">      logger.info(&quot;############################### distinct bitmap value are  correct ##### :- &quot;)</span>
+<span class="nc" id="L227">      return true</span>
+    }
+    else
+<span class="nc" id="L230">      logger.info(&quot;------------------ Bitmap File  will not be tested for custom Attr--------------------------&quot;)</span>
+<span class="nc" id="L231">    true</span>
+  }
+
+<span class="nc" id="L234">  def attributeIDAndBitmapTypeValueValidation(awsS3Client: AmazonS3,setup:Setup, dataSetFileData: Any, delimiter: String = &quot;\t&quot;): Boolean = {</span>
+<span class="nc" id="L235">    val dataSetType = dataSetFileData.toString.split(delimiter)(3)</span>
+<span class="nc bnc" id="L236" title="All 2 branches missed.">    if (!dataSetType.equals(&quot;Custom Attr&quot;))</span>
+    {
+<span class="nc" id="L238">      val bitmapFilePath = setup.bitmapFilePath(dataSetFileData.toString.split(delimiter)(6), dataSetFileData.toString.split(delimiter)(8), dataSetFileData.toString.split(delimiter)(13)).drop(1)</span>
+<span class="nc" id="L239">      var attributeIDAndBitmapType = UtilsFunction.getTwoColumnFromFile(awsS3Client, &quot;s3://&quot; + setup.bucketName + &quot;/&quot; + bitmapFilePath, 0, 1)</span>
+<span class="nc" id="L240">      var distinctAttributeIDAndBitmapType = attributeIDAndBitmapType.distinct</span>
+
+<span class="nc" id="L242">      var difference = attributeIDAndBitmapType diff distinctAttributeIDAndBitmapType</span>
+<span class="nc bnc" id="L243" title="All 2 branches missed.">      if (!(difference.length == 0)) {</span>
+<span class="nc" id="L244">        logger.info(&quot;############################### attributeID And BitmapType Value is not unique ##### :- &quot; + difference.foreach(println))</span>
+<span class="nc" id="L245">        return false</span>
+      }
+<span class="nc" id="L247">      logger.info(&quot;############################### attributeID And BitmapType Value is unique #####&quot;)</span>
+<span class="nc" id="L248">      return true</span>
+    }
+    else
+<span class="nc" id="L251">      logger.info(&quot;------------------ Bitmap File  will not be tested for custom Attr--------------------------&quot;)</span>
+<span class="nc" id="L252">    true</span>
+
+  }
+
+
+<span class="nc" id="L257">  def attributeIDPresentInDisplayFile(awsS3Client: AmazonS3,setup:Setup, dataSetFileData: Any, delimiter: String = &quot;\t&quot;): Boolean = {</span>
+<span class="nc" id="L258">    val dataSetType = dataSetFileData.toString.split(delimiter)(3)</span>
+<span class="nc bnc" id="L259" title="All 2 branches missed.">    if (!dataSetType.equals(&quot;Custom Attr&quot;)) {</span>
+
+<span class="nc" id="L261">      val bitmapFilePath = setup.bitmapFilePath(dataSetFileData.toString.split(delimiter)(6), dataSetFileData.toString.split(delimiter)(8), dataSetFileData.toString.split(delimiter)(13)).drop(1)</span>
+<span class="nc" id="L262">      val displayFilePath = setup.displayFilePath(dataSetFileData.toString.split(delimiter)(6), dataSetFileData.toString.split(delimiter)(8), dataSetFileData.toString.split(delimiter)(12)).drop(1)</span>
+<span class="nc" id="L263">      val displayFileName = dataSetFileData.toString.split(delimiter)(12)</span>
+<span class="nc bnc" id="L264" title="All 2 branches missed.">      if (displayFileName.endsWith(&quot;dataset-display.tsv&quot;)) {</span>
+<span class="nc" id="L265">        var distinctattributeID = UtilsFunction.getColumnFromFile(awsS3Client, &quot;s3://&quot; + setup.bucketName + &quot;/&quot; + bitmapFilePath, 0).distinct</span>
+<span class="nc" id="L266">        var attributeIDInDisplayFile = UtilsFunction.getColumnFromFile(awsS3Client, &quot;s3://&quot; + setup.bucketName + &quot;/&quot; + displayFilePath, 0)</span>
+
+<span class="nc" id="L268">        var differenceAttributeId = attributeIDInDisplayFile diff distinctattributeID</span>
+<span class="nc bnc" id="L269" title="All 2 branches missed.">        if (!(differenceAttributeId.length == 0)) {</span>
+<span class="nc" id="L270">          logger.info(&quot;############################### differenceAttributeId value are not correct ##### :- &quot; + differenceAttributeId.foreach(println))</span>
+<span class="nc" id="L271">          logger.info(&quot;############################### attributeIDInDisplayFile value are not correct ##### :- &quot; + attributeIDInDisplayFile.foreach(println))</span>
+<span class="nc" id="L272">          return false</span>
+        }
+        else {
+<span class="nc" id="L275">          logger.info(&quot;############################### distinct bitmap value are  correct ##### :- &quot;)</span>
+<span class="nc" id="L276">          return true</span>
+        }
+      }
+      else
+<span class="nc" id="L280">        logger.info(&quot;############################### display file is missing  ##### :- &quot;)</span>
+<span class="nc" id="L281">        false</span>
+    }
+    else
+    {
+<span class="nc" id="L285">      logger.info(&quot;------------------ Bitmap File  will not be tested for custom Attr--------------------------&quot;)</span>
+<span class="nc" id="L286">      true</span>
+    }
+
+  }
+
+<span class="nc" id="L291">  def mbidCountIsNumeric(awsS3Client: AmazonS3,setup:Setup, dataSetFileData: Any, delimiter: String = &quot;\t&quot;): Boolean = {</span>
+<span class="nc" id="L292">    val dataSetType = dataSetFileData.toString.split(delimiter)(3)</span>
+<span class="nc bnc" id="L293" title="All 2 branches missed.">    if (!dataSetType.equals(&quot;Custom Attr&quot;))</span>
+    {
+<span class="nc" id="L295">      try {</span>
+<span class="nc" id="L296">        val bitmapFilePath = setup.bitmapFilePath(dataSetFileData.toString.split(delimiter)(6), dataSetFileData.toString.split(delimiter)(8), dataSetFileData.toString.split(delimiter)(13)).drop(1)</span>
+<span class="nc" id="L297">        val lineIterator = getLinesFromFile(&quot;s3://&quot; + setup.bucketName + &quot;/&quot; + bitmapFilePath, awsS3Client)</span>
+<span class="nc" id="L298">        lineIterator.drop(1)</span>
+<span class="nc" id="L299">        for (i &lt;- lineIterator) {</span>
+<span class="nc" id="L300">          val data = i.split(delimiter)(3)</span>
+<span class="nc" id="L301">          data.toInt</span>
+        }
+<span class="nc" id="L303">        logger.info(&quot;########### Mbid is numeric ########### &quot;)</span>
+<span class="nc" id="L304">       return true</span>
+      }
+      catch {
+        case exp: FileNotFoundException =&gt;
+<span class="nc" id="L308">          logger.info(&quot;################### file is not present   &quot; + exp)</span>
+<span class="nc" id="L309">          return false</span>
+        case exp: ArrayIndexOutOfBoundsException =&gt;
+<span class="nc" id="L311">          logger.info(&quot;################### Array Index OutOf Bounds Exception  &quot; + exp)</span>
+<span class="nc" id="L312">          return false</span>
+        case exp: NullPointerException =&gt;
+<span class="nc" id="L314">          logger.info(&quot;null pointer  &quot; + exp)</span>
+<span class="nc" id="L315">          return false</span>
+        case exp: NumberFormatException =&gt;
+<span class="nc" id="L317">          logger.info(&quot;Mbid is not Numeric&quot; + exp)</span>
+<span class="nc" id="L318">          return false</span>
+
+      }
+    }
+    else
+<span class="nc" id="L323">      logger.info(&quot;------------------ Bitmap File  will not be tested for custom Attr--------------------------&quot;)</span>
+<span class="nc" id="L324">    true</span>
+  }
+
+
+<span class="nc" id="L328">  def hhidCountIsNumeric(awsS3Client: AmazonS3, setup:Setup,dataSetFileData: Any, delimiter: String = &quot;\t&quot;): Boolean = {</span>
+<span class="nc" id="L329">    val dataSetType = dataSetFileData.toString.split(delimiter)(3)</span>
+<span class="nc bnc" id="L330" title="All 2 branches missed.">    if (!dataSetType.equals(&quot;Custom Attr&quot;))</span>
+    {
+<span class="nc bnc" id="L332" title="All 8 branches missed.">      if (!(setup.market.toUpperCase.equals(&quot;UK&quot;)|| setup.market.toUpperCase.equals(&quot;AU&quot;) || setup.market.toUpperCase.equals(&quot;MX&quot;)|| setup.market.toUpperCase.equals(&quot;JP&quot;))) {</span>
+<span class="nc" id="L333">        try {</span>
+
+<span class="nc" id="L335">          val bitmapFilePath = setup.bitmapFilePath(dataSetFileData.toString.split(delimiter)(6), dataSetFileData.toString.split(delimiter)(8), dataSetFileData.toString.split(delimiter)(13)).drop(1)</span>
+<span class="nc" id="L336">          val lineIterator = getLinesFromFile(&quot;s3://&quot; + setup.bucketName + &quot;/&quot; + bitmapFilePath, awsS3Client)</span>
+<span class="nc" id="L337">          lineIterator.drop(1)</span>
+<span class="nc" id="L338">          for (i &lt;- lineIterator) {</span>
+<span class="nc" id="L339">            val data = i.split(delimiter)(5)</span>
+<span class="nc" id="L340">            data.toInt</span>
+          }
+<span class="nc" id="L342">          logger.info(&quot;########### HHID is numeric ########### &quot;)</span>
+<span class="nc" id="L343">          return  true</span>
+        }
+        catch {
+          case exp: FileNotFoundException =&gt;
+<span class="nc" id="L347">            logger.info(&quot;################### file is not present   &quot; + exp)</span>
+<span class="nc" id="L348">            return false</span>
+          case exp: ArrayIndexOutOfBoundsException =&gt;
+<span class="nc" id="L350">            logger.info(&quot;################### Array Index OutOf Bounds Exception  &quot; + exp)</span>
+<span class="nc" id="L351">            return false</span>
+          case exp: NullPointerException =&gt;
+<span class="nc" id="L353">            logger.info(&quot;null pointer  &quot; + exp)</span>
+<span class="nc" id="L354">            return false</span>
+          case exp: NumberFormatException =&gt;
+<span class="nc" id="L356">            logger.info(&quot;HHID is not Numeric&quot; + exp)</span>
+<span class="nc" id="L357">            return false</span>
+
+        }
+      }
+<span class="nc" id="L361">      logger.info(&quot;############################### HHID will not test in UK ,MX ,JP  and AU market  ##### :- &quot;)</span>
+<span class="nc" id="L362">      return true</span>
+    }
+    else
+<span class="nc" id="L365">      logger.info(&quot;------------------ Bitmap File  will not be tested for custom Attr--------------------------&quot;)</span>
+<span class="nc" id="L366">    true</span>
+
+  }
+
+
+
+<span class="nc" id="L372">  def validation(marketName: String,</span>
+                 bucket: String,
+                 dataProviderName: String,
+                 matchingPartnerName: String,
+<span class="nc bnc" id="L376" title="All 2 branches missed.">                 thread_count: Int = 1): Boolean = {</span>
+<span class="nc" id="L377">    var setup = new Setup(marketName,bucket,dataProviderName,matchingPartnerName)</span>
+<span class="nc" id="L378">    var awsS3Client =setup.awsS3Client</span>
+<span class="nc" id="L379">    val pColumns =  FileData.dataProviderData(awsS3Client,setup).par</span>
+<span class="nc" id="L380">    pColumns.tasksupport = new ForkJoinTaskSupport(new forkjoin.ForkJoinPool(thread_count))</span>
+<span class="nc" id="L381">    try{</span>
+<span class="nc bnc" id="L382" title="All 2 branches missed.">    pColumns.foreach(dataSetFileData=&gt;</span>
+<span class="nc bnc" id="L383" title="All 2 branches missed.">      if(!( headerValidation(awsS3Client,setup,dataSetFileData(1))))</span>
+    {
+<span class="nc" id="L385">      logger.info(&quot;-----------------headerValidation failed ---------------------&quot;)</span>
+<span class="nc" id="L386">      return false</span>
+    }
+    )
+<span class="nc bnc" id="L389" title="All 2 branches missed.">    pColumns.foreach(dataSetFileData=&gt;</span>
+<span class="nc bnc" id="L390" title="All 2 branches missed.">      if(!(specialCharacterValidation(awsS3Client,setup,dataSetFileData(1))))</span>
+<span class="nc" id="L391">    {logger.info(&quot;-----------------specialCharacterValidation failed ---------------------&quot;)</span>
+<span class="nc" id="L392">      return false</span>
+    }    )
+
+<span class="nc bnc" id="L395" title="All 2 branches missed.">    pColumns.foreach(dataSetFileData=&gt;</span>
+<span class="nc bnc" id="L396" title="All 2 branches missed.">      if(!(mbidPathValidation(awsS3Client,setup,dataSetFileData(1)))){</span>
+<span class="nc" id="L397">        logger.info(&quot;-----------------mbidPathValidation failed ---------------------&quot;)</span>
+<span class="nc" id="L398">        return false</span>
+      })
+<span class="nc bnc" id="L400" title="All 2 branches missed.">    pColumns.foreach(dataSetFileData=&gt;</span>
+<span class="nc bnc" id="L401" title="All 2 branches missed.">      if(!(mbidPathAreUnique(awsS3Client,setup,dataSetFileData(1)))){</span>
+<span class="nc" id="L402">        logger.info(&quot;-----------------mbidPathAreUnique failed ---------------------&quot;)</span>
+<span class="nc" id="L403">        return false</span>
+      })
+<span class="nc bnc" id="L405" title="All 2 branches missed.">    pColumns.foreach(dataSetFileData=&gt;</span>
+<span class="nc bnc" id="L406" title="All 2 branches missed.">      if(!(hhidPathAreUnique(awsS3Client,setup,dataSetFileData(1)))){</span>
+<span class="nc" id="L407">        logger.info(&quot;-----------------hhidPathAreUnique failed ---------------------&quot;)</span>
+<span class="nc" id="L408">        return false</span>
+      })
+<span class="nc bnc" id="L410" title="All 4 branches missed.">    pColumns.foreach(dataSetFileData=&gt;if(!(bitmapTypeValueValidation(awsS3Client,setup,dataSetFileData(1)))){</span>
+<span class="nc" id="L411">      logger.info(&quot;-----------------bitmapTypeValueValidation failed ---------------------&quot;)</span>
+<span class="nc" id="L412">      return false</span>
+    })
+<span class="nc bnc" id="L414" title="All 4 branches missed.">    pColumns.foreach(dataSetFileData=&gt;if(!(attributeIDAndBitmapTypeValueValidation(awsS3Client,setup,dataSetFileData(1)))){</span>
+<span class="nc" id="L415">      logger.info(&quot;-----------------attributeIDAndBitmapTypeValueValidation failed ---------------------&quot;)</span>
+<span class="nc" id="L416">      return false</span>
+    })
+
+<span class="nc bnc" id="L419" title="All 4 branches missed.">    pColumns.foreach(dataSetFileData=&gt;if(!(mbidCountIsNumeric(awsS3Client,setup,dataSetFileData(1)))){</span>
+<span class="nc" id="L420">      logger.info(&quot;-----------------mbidCountIsNumeric failed ---------------------&quot;)</span>
+<span class="nc" id="L421">      return false</span>
+    })
+<span class="nc bnc" id="L423" title="All 4 branches missed.">    pColumns.foreach(dataSetFileData=&gt;if(!(hhidCountIsNumeric(awsS3Client,setup,dataSetFileData(1)))){</span>
+<span class="nc" id="L424">      logger.info(&quot;-----------------hhidCountIsNumeric failed ---------------------&quot;)</span>
+<span class="nc" id="L425">      return false</span>
+    })
+
+<span class="nc bnc" id="L428" title="All 4 branches missed.">      pColumns.foreach(dataSetFileData=&gt;if(!(attributeIDPresentInDisplayFile(awsS3Client,setup,dataSetFileData(1))))</span>
+      {
+<span class="nc" id="L430">        logger.info(&quot;-----------------attributeID Present In Display File  failed---------------------&quot;)</span>
+<span class="nc" id="L431">        return false</span>
+      })
+<span class="nc" id="L433">     true</span>
+    }
+    catch{
+      case e:ArrayIndexOutOfBoundsException=&gt;return false
+      case  ie:Exception=&gt; return false
+
+    }
+
+  }
+
+<span class="nc" id="L443">  override def run(args: JSONObject): Unit = {</span>
+
+<span class="nc" id="L445">    val marketName = args.getString(&quot;marketName&quot;)</span>
+<span class="nc" id="L446">    val bucket = args.getString(&quot;bucket&quot;)</span>
+<span class="nc" id="L447">    val dataProviderName = args.getString(&quot;dataProviderName&quot;)</span>
+<span class="nc" id="L448">    val matchingPartnerName = args.getString(&quot;matchingPartnerName&quot;)</span>
+<span class="nc" id="L449">    val thread_count = args.getOrElse[Int](&quot;thread_count&quot;, 1)</span>
+
+<span class="nc bnc" id="L451" title="All 2 branches missed.">    if(!validation(marketName,bucket,dataProviderName,matchingPartnerName,thread_count))</span>
+    {
+<span class="nc" id="L453">      throw new RuntimeException(&quot;-----------------Bitmap File validation failed ---------------------&quot;)</span>
+    }
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

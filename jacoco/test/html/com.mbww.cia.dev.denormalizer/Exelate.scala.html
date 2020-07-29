@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Exelate.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.denormalizer</a> &gt; <span class="el_source">Exelate.scala</span></div><h1>Exelate.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.denormalizer
+
+import com.mbww.cia.common.{Module, _}
+import com.mbww.cia.common.Spark.spark
+import org.apache.spark.sql.SaveMode
+import org.json.JSONObject
+import org.slf4j.LoggerFactory
+
+<span class="nc" id="L9">class Exelate extends Module {</span>
+
+<span class="nc" id="L11">  val logger = LoggerFactory.getLogger(this.getClass())</span>
+
+  def generate(factBasePath: String, dimensionPath: String, keysPath: String, outputBasePath: String, prossesingParts: Seq[String]): Unit = {
+
+<span class="nc" id="L15">    for (part &lt;- prossesingParts) {</span>
+<span class="nc" id="L16">      val dimension = spark.read.load(dimensionPath)</span>
+<span class="nc" id="L17">      dimension.createOrReplaceTempView(&quot;dimension_view&quot;)</span>
+
+<span class="nc" id="L19">      val filteredDimension = spark.sql(&quot;select segment, segment_code from dimension_view where category != 'NCS'&quot;)</span>
+<span class="nc" id="L20">      filteredDimension.createOrReplaceTempView(&quot;filtered_dimension_view&quot;)</span>
+
+<span class="nc" id="L22">      val keys = spark.read.load(keysPath)</span>
+<span class="nc" id="L23">      keys.createOrReplaceTempView(&quot;keys_view&quot;)</span>
+
+<span class="nc" id="L25">      val fact = spark.read.load(s&quot;$factBasePath&quot; + part + &quot;*&quot;)</span>
+<span class="nc" id="L26">      fact.createOrReplaceTempView(&quot;fact_view&quot;)</span>
+
+<span class="nc" id="L28">      val filteredFact = spark.sql(&quot;select consumer_pel,segment_code from fact_view where consumer_pel like 'XY%'&quot;)</span>
+<span class="nc" id="L29">      filteredFact.createOrReplaceTempView(&quot;filtered_act_view&quot;)</span>
+
+<span class="nc" id="L31">      val factDimJoin = spark.sql(&quot;select a.consumer_pel, b.segment_code from filtered_act_view a inner join filtered_dimension_view b on a.segment_code = b.segment_code&quot;)</span>
+<span class="nc" id="L32">      factDimJoin.createOrReplaceTempView(&quot;fact_dim_join_view&quot;)</span>
+
+<span class="nc" id="L34">      val output = spark.sql(&quot;select a.segment_code, b.mbid, b.hhid from fact_dim_join_view  a inner join keys_view b ON a.consumer_pel=b.mbid_value&quot;)</span>
+<span class="nc" id="L35">      output.repartition(200).write.mode(SaveMode.Overwrite).parquet(s&quot;$outputBasePath&quot; + &quot;part=&quot; + part)</span>
+
+    }
+  }
+
+
+  def generateDenormalized(factBasePath: String, prossesingParts: Seq[String], outputBasePath: String): Unit = {
+<span class="nc bnc" id="L42" title="All 2 branches missed.">    for (part &lt;- prossesingParts) {</span>
+<span class="nc" id="L43">      logger.info(&quot;Processing part ===&gt; &quot; + part)</span>
+<span class="nc" id="L44">      val data = spark.read.load(s&quot;$factBasePath&quot; + &quot;part=&quot; + part)</span>
+<span class="nc" id="L45">      val mbid = data.select(&quot;segment_code&quot;, &quot;mbid&quot;)</span>
+<span class="nc" id="L46">      mbid.repartition(1).write.mode(SaveMode.Append).partitionBy(&quot;segment_code&quot;).mode(SaveMode.Append).parquet(outputBasePath + &quot;mbid/&quot;)</span>
+
+<span class="nc" id="L48">      val hhid = data.select(&quot;segment_code&quot;, &quot;hhid&quot;)</span>
+<span class="nc" id="L49">      hhid.repartition(1).write.mode(SaveMode.Append).partitionBy(&quot;segment_code&quot;).mode(SaveMode.Append).parquet(outputBasePath + &quot;hhid/&quot;)</span>
+
+<span class="nc" id="L51">      logger.info(&quot;Done Processing part ===&gt; &quot; + part)</span>
+    }
+  }
+
+<span class="nc" id="L55">  override def run(args: JSONObject): Unit = {</span>
+
+<span class="nc" id="L57">    val factBasePath = args.getString(&quot;factBasePath&quot;)</span>
+<span class="nc" id="L58">    val prossesingParts = args.getSeq[String](&quot;prossesingParts&quot;)</span>
+<span class="nc" id="L59">    val outputBasePath = args.getString(&quot;outputBasePath&quot;)</span>
+<span class="nc" id="L60">    val dimensionPath = args.getString(&quot;dimensionPath&quot;)</span>
+<span class="nc" id="L61">    val keysPath = args.getString(&quot;keysPath&quot;)</span>
+<span class="nc" id="L62">    val isStageOne = args.getOrElse[Int](&quot;isStageOne&quot;, 0)</span>
+
+<span class="nc bnc" id="L64" title="All 2 branches missed.">    if (isStageOne.toInt == 0) {</span>
+<span class="nc" id="L65">      generate(factBasePath, dimensionPath, keysPath, outputBasePath, prossesingParts)</span>
+    }
+<span class="nc bnc" id="L67" title="All 2 branches missed.">    else if (isStageOne.toInt == 1) {</span>
+<span class="nc" id="L68">      generateDenormalized(factBasePath, prossesingParts, outputBasePath)</span>
+    }
+
+  }
+
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

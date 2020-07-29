@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ESIndexer.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.es.indexer</a> &gt; <span class="el_source">ESIndexer.scala</span></div><h1>ESIndexer.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.es.indexer
+
+import com.mbww.cia.common.Spark.{spark =&gt; ciaSpark}
+import com.mbww.cia.common.Module
+import com.mbww.cia.common._
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.json.JSONObject
+
+<span class="nc" id="L10">sealed abstract class ESIndexerExecutionMode(name: String){</span>
+<span class="nc" id="L11">  def getName: String = name</span>
+}
+<span class="nc" id="L13">object ESIndexerExecutionMode {</span>
+<span class="nc" id="L14">  def fromName(name: String): ESIndexerExecutionMode = name match {</span>
+<span class="nc bnc" id="L15" title="All 2 branches missed.">    case &quot;mbid&quot; =&gt; Mbid</span>
+<span class="nc bnc" id="L16" title="All 2 branches missed.">    case &quot;hhid&quot; =&gt; Hhid</span>
+<span class="nc bnc" id="L17" title="All 2 branches missed.">    case &quot;both&quot; =&gt; Both</span>
+<span class="nc" id="L18">    case _ =&gt; throw new IllegalArgumentException(s&quot;'$name' is not a valid execution type&quot;)</span>
+  }
+}
+<span class="nc" id="L21">case object Mbid extends ESIndexerExecutionMode(&quot;mbid&quot;)</span>
+<span class="nc" id="L22">case object Hhid extends ESIndexerExecutionMode(&quot;mbid&quot;)</span>
+<span class="nc" id="L23">case object Both extends ESIndexerExecutionMode(&quot;both&quot;)</span>
+
+<span class="nc bnc" id="L25" title="All 90 branches missed.">case class ESIndexerParams(inputPath: String = &quot;&quot;,</span>
+<span class="nc" id="L26">                           indexSuffix: String = &quot;&quot;,</span>
+<span class="nc" id="L27">                           executionMode: ESIndexerExecutionMode = Both,</span>
+<span class="nc" id="L28">                           mbidName: Option[String] = None,</span>
+<span class="nc" id="L29">                           hhidName: Option[String] = None,</span>
+<span class="nc" id="L30">                           market: String = &quot;US&quot;,</span>
+<span class="nc" id="L31">                           dataset: String = &quot;&quot;,</span>
+<span class="nc" id="L32">                           matchingPartner: String = &quot;acxiom&quot;,</span>
+<span class="nc" id="L33">                           excludeColumns: String = &quot;&quot;,</span>
+<span class="nc" id="L34">                           esNodes: String = &quot;&quot;,</span>
+<span class="nc" id="L35">                           esOperation: String = &quot;index&quot;</span>
+                           ) {
+
+<span class="nc" id="L38">  def withInputPath(value: String): ESIndexerParams = this.copy(inputPath = value)</span>
+<span class="nc" id="L39">  def withIndexSuffix(value: String): ESIndexerParams = this.copy(indexSuffix = value)</span>
+<span class="nc" id="L40">  def withExecutionMode(value: String): ESIndexerParams = this.copy(executionMode = ESIndexerExecutionMode.fromName(value))</span>
+<span class="nc bnc" id="L41" title="All 2 branches missed.">  def withMbidName(value: String): ESIndexerParams = this.copy(mbidName = if (value.trim.nonEmpty) Some(value) else None)</span>
+<span class="nc bnc" id="L42" title="All 2 branches missed.">  def witHhidName(value: String): ESIndexerParams = this.copy(hhidName = if (value.trim.nonEmpty) Some(value) else None)</span>
+<span class="nc" id="L43">  def withExcludeColumns(value: String): ESIndexerParams = this.copy(excludeColumns = value)</span>
+<span class="nc" id="L44">  def withEsNodes(value: String): ESIndexerParams = this.copy(esNodes = value)</span>
+<span class="nc" id="L45">  def withEsOperation(value: String): ESIndexerParams = this.copy(esOperation = value)</span>
+<span class="nc" id="L46">  def withMarket(value: String): ESIndexerParams = this.copy(market = value)</span>
+<span class="nc" id="L47">  def withDataset(value: String): ESIndexerParams = this.copy(dataset = value)</span>
+<span class="nc" id="L48">  def withMatchingPartner(value: String): ESIndexerParams = this.copy(matchingPartner = value)</span>
+
+}
+
+/**
+  * Elastic search indexer.
+  *
+  * This pipeline will take the provided data set, already pre-processed,
+  * and index it in the provided elastic search end point.
+  */
+<span class="nc" id="L58">class ESIndexer extends Module {</span>
+
+<span class="nc" id="L60">  val spark: SparkSession = ciaSpark</span>
+  import spark.implicits._
+
+<span class="nc" id="L63">  private def process(params: ESIndexerParams): Unit = {</span>
+    //TODO implement mechanism for mini batch processing
+<span class="nc" id="L65">    val toIndex = loadDataToIndex(params)</span>
+<span class="nc" id="L66">    params.executionMode match {</span>
+<span class="nc bnc" id="L67" title="All 2 branches missed.">      case Both =&gt;</span>
+<span class="nc" id="L68">        indexMbId(toIndex, params)</span>
+<span class="nc" id="L69">        indexHhId(toIndex, params)</span>
+<span class="nc bnc" id="L70" title="All 2 branches missed.">      case Mbid =&gt;</span>
+<span class="nc" id="L71">        indexMbId(toIndex, params)</span>
+<span class="nc bnc" id="L72" title="All 2 branches missed.">      case Hhid =&gt;</span>
+<span class="nc" id="L73">        indexHhId(toIndex, params)</span>
+    }
+  }
+
+  private def loadDataToIndex(params: ESIndexerParams): DataFrame = {
+
+<span class="nc" id="L79">    val selectIds = Seq(params.mbidName, params.hhidName)</span>
+<span class="nc" id="L80">      .filter(_.isDefined).map(value =&gt; col(value.get)) :+ $&quot;attributes&quot;.as(s&quot;${params.dataset}_DT&quot;)</span>
+
+<span class="nc" id="L82">    spark.read.parquet(params.inputPath)</span>
+<span class="nc" id="L83">      .select(selectIds:_*)</span>
+<span class="nc" id="L84">      .withColumn(&quot;market&quot;, lit(params.market))</span>
+<span class="nc" id="L85">      .withColumn(&quot;matching_partner&quot;, lit(params.matchingPartner))</span>
+  }
+
+  private def indexMbId(df: DataFrame, params: ESIndexerParams): Unit = {
+
+<span class="nc bnc" id="L90" title="All 2 branches missed.">    if (params.mbidName.isEmpty)</span>
+<span class="nc" id="L91">      throw new IllegalArgumentException(&quot;Processing mbid requires the mbid attribute name&quot;)</span>
+
+<span class="nc" id="L93">    val columnName = params.mbidName.get</span>
+<span class="nc" id="L94">    val toIndex = df.select(col(columnName), col(s&quot;${params.dataset}_DT&quot;), $&quot;market&quot;, $&quot;matching_partner&quot;)</span>
+
+<span class="nc" id="L96">    toIndex.write</span>
+<span class="nc" id="L97">      .format(&quot;org.elasticsearch.spark.sql&quot;)</span>
+<span class="nc" id="L98">      .option(&quot;es.mapping.id&quot;, columnName)</span>
+<span class="nc" id="L99">      .option(&quot;es.nodes.wan.only&quot;,&quot;true&quot;)</span>
+<span class="nc" id="L100">      .option(&quot;es.port&quot;,&quot;443&quot;)</span>
+<span class="nc" id="L101">      .option(&quot;es.net.ssl&quot;,&quot;true&quot;)</span>
+<span class="nc" id="L102">      .option(&quot;es.nodes&quot;, params.esNodes)</span>
+<span class="nc" id="L103">      .option(&quot;es.write.operation&quot;, params.esOperation)</span>
+<span class="nc" id="L104">      .option(&quot;es.mapping.exclude&quot;, columnName)</span>
+<span class="nc" id="L105">      .mode(&quot;append&quot;)</span>
+<span class="nc" id="L106">      .save(s&quot;/mbid${params.indexSuffix}/&quot;)</span>
+  }
+
+  private def indexHhId(df: DataFrame, params: ESIndexerParams): Unit = {
+
+<span class="nc bnc" id="L111" title="All 2 branches missed.">    if (params.hhidName.isEmpty)</span>
+<span class="nc" id="L112">      throw new IllegalArgumentException(&quot;Processing hhid requires the hhid attribute name&quot;)</span>
+
+<span class="nc" id="L114">    val columnName = params.hhidName.get</span>
+<span class="nc" id="L115">    val toIndex = df.select(col(columnName), col(s&quot;${params.dataset}_DT&quot;), $&quot;market&quot;, $&quot;matching_partner&quot;)</span>
+
+<span class="nc" id="L117">    toIndex.write</span>
+<span class="nc" id="L118">      .format(&quot;org.elasticsearch.spark.sql&quot;)</span>
+<span class="nc" id="L119">      .option(&quot;es.mapping.id&quot;, columnName)</span>
+<span class="nc" id="L120">      .option(&quot;es.nodes.wan.only&quot;,&quot;true&quot;)</span>
+<span class="nc" id="L121">      .option(&quot;es.port&quot;,&quot;443&quot;)</span>
+<span class="nc" id="L122">      .option(&quot;es.net.ssl&quot;,&quot;true&quot;)</span>
+<span class="nc" id="L123">      .option(&quot;es.nodes&quot;, params.esNodes)</span>
+<span class="nc" id="L124">      .option(&quot;es.write.operation&quot;, params.esOperation)</span>
+<span class="nc" id="L125">      .option(&quot;es.mapping.exclude&quot;, columnName)</span>
+<span class="nc" id="L126">      .mode(&quot;append&quot;)</span>
+<span class="nc" id="L127">      .save(s&quot;/hhid${params.indexSuffix}/&quot;)</span>
+  }
+
+  override def run(args: JSONObject): Unit = {
+<span class="nc" id="L131">    val defaults = ESIndexerParams()</span>
+<span class="nc" id="L132">    val params = ESIndexerParams()</span>
+<span class="nc" id="L133">      .withInputPath(args.getString(&quot;parquet_input_path&quot;))</span>
+<span class="nc" id="L134">      .withIndexSuffix(args.getOrElse[String](&quot;index_suffix&quot;, defaults.indexSuffix))</span>
+<span class="nc" id="L135">      .withExecutionMode(args.getOrElse[String](&quot;exec_mode&quot;, defaults.executionMode.getName))</span>
+<span class="nc" id="L136">      .withMbidName(args.getOrElse[String](&quot;mbid&quot;, &quot;&quot;))</span>
+<span class="nc" id="L137">      .witHhidName(args.getOrElse[String](&quot;hhid&quot;, &quot;&quot;))</span>
+<span class="nc" id="L138">      .withExcludeColumns(args.getOrElse[String](&quot;exclude_columns&quot;, defaults.excludeColumns))</span>
+<span class="nc" id="L139">      .withEsNodes(args.getString(&quot;es_nodes&quot;))</span>
+<span class="nc" id="L140">      .withEsOperation(args.getOrElse[String](&quot;es_operation&quot;, defaults.esOperation))</span>
+<span class="nc" id="L141">      .withMarket(args.getOrElse[String](&quot;market&quot;, defaults.market))</span>
+<span class="nc" id="L142">      .withDataset(args.getString(&quot;dataset&quot;))</span>
+<span class="nc" id="L143">      .withMatchingPartner(args.getOrElse[String](&quot;matching_partner&quot;, defaults.matchingPartner))</span>
+
+<span class="nc" id="L145">    process(params)</span>
+  }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

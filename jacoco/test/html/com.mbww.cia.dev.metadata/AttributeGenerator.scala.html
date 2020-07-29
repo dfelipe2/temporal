@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AttributeGenerator.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.dev.metadata</a> &gt; <span class="el_source">AttributeGenerator.scala</span></div><h1>AttributeGenerator.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.dev.metadata
+
+import com.mbww.cia.common.Spark._
+import com.mbww.cia.common.{Module, _}
+import org.apache.spark.sql.functions.col
+import org.json.JSONObject
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.SaveMode
+
+<span class="fc" id="L11">class AttributeGenerator extends Module {</span>
+
+  def generateAttributesForTextual(inputPath: String,
+                                   outputPath: String,
+                                   dropColumns: Seq[String],
+                                   attributeId: String) =
+  {
+<span class="fc" id="L18">    val inputData = spark.read.parquet(inputPath)</span>
+<span class="fc" id="L19">    val data = inputData.drop(dropColumns: _*)</span>
+<span class="fc" id="L20">    val attributes = data.columns.foldLeft(data) {</span>
+<span class="fc" id="L21">      (acc: DataFrame, colName: String) =&gt;  acc.withColumn(colName, concat(lit(colName + &quot;_&quot;), col(colName)))</span>
+    }
+
+<span class="fc" id="L24">    attributes.columns.map(col =&gt; attributes.select(col)</span>
+<span class="fc" id="L25">                                            .withColumnRenamed(col,attributeId)</span>
+<span class="fc" id="L26">                                            .filter(attributeId + &quot; is not null&quot;)</span>
+<span class="fc" id="L27">                                            .distinct()</span>
+<span class="fc" id="L28">                                            .coalesce(1)</span>
+<span class="fc" id="L29">                                            .write.mode(SaveMode.Append)</span>
+<span class="fc" id="L30">                                            .parquet(outputPath))</span>
+  }
+
+  def generateAttributesForBinary(inputPath: String,
+                                  outputPath: String,
+                                  dropColumns: Seq[String],
+                                  attributeId: String) =
+  {
+<span class="fc" id="L38">    val sp = spark</span>
+    import sp.implicits._
+
+<span class="fc" id="L41">    val inputData = spark.read.parquet(inputPath)</span>
+<span class="fc" id="L42">    val data = inputData.drop(dropColumns: _*)</span>
+<span class="fc" id="L43">    spark.sparkContext.parallelize(data.columns)</span>
+<span class="fc" id="L44">                      .toDF(attributeId)</span>
+<span class="fc" id="L45">                      .coalesce(1)</span>
+<span class="fc" id="L46">                      .write</span>
+<span class="fc" id="L47">                      .parquet(outputPath)</span>
+  }
+
+<span class="fc" id="L50">  override def run(args: JSONObject): Unit = {</span>
+
+<span class="fc" id="L52">    val inputType = args.getString(&quot;input_type&quot;)</span>
+<span class="fc" id="L53">    val inputPath = args.getString(&quot;input_path&quot;)</span>
+<span class="fc" id="L54">    val outputPath = args.getString(&quot;output_path&quot;)</span>
+<span class="fc" id="L55">    val dropColumns = args.getSeq[String](&quot;drop_columns&quot;)</span>
+<span class="fc" id="L56">    val attributeId = args.getString(&quot;attribute_id&quot;)</span>
+
+<span class="pc bpc" id="L58" title="3 of 6 branches missed.">    if (inputType == &quot;text&quot;) {</span>
+<span class="fc" id="L59">      generateAttributesForTextual(inputPath,outputPath,dropColumns,attributeId)</span>
+    }
+<span class="pc bpc" id="L61" title="4 of 6 branches missed.">    else if (inputType == &quot;binary&quot;) {</span>
+<span class="fc" id="L62">      generateAttributesForBinary(inputPath,outputPath,dropColumns,attributeId)</span>
+    }
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

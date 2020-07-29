@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SNSLogger.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.core.logging</a> &gt; <span class="el_source">SNSLogger.scala</span></div><h1>SNSLogger.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.core.logging
+
+import com.amazonaws.regions.Regions
+import com.amazonaws.services.sns.model.{MessageAttributeValue, PublishRequest}
+import com.amazonaws.services.sns.{AmazonSNS, AmazonSNSClientBuilder}
+import com.mbww.cia.core.logging.CIALogger._
+import com.mbww.cia.common._
+
+object SNSLogger {
+
+<span class="nc" id="L11">  val LEVEL_INFO = &quot;INFO&quot;</span>
+<span class="nc" id="L12">  val LEVEL_WARN = &quot;WARN&quot;</span>
+<span class="nc" id="L13">  val LEVEL_ERROR = &quot;ERROR&quot;</span>
+<span class="nc" id="L14">  val LEVEL_DEBUG = &quot;DEBUG&quot;</span>
+
+<span class="nc" id="L16">  val SYSTEM_ARN_INFO = &quot;CIA_SNS_ARN_INFO&quot;</span>
+<span class="nc" id="L17">  val SYSTEM_ARN_WARN = &quot;CIA_SNS_ARN_WARN&quot;</span>
+<span class="nc" id="L18">  val SYSTEM_ARN_ERROR = &quot;CIA_SNS_ARN_ERROR&quot;</span>
+<span class="nc" id="L19">  val SYSTEM_ARN_DEBUG = &quot;CIA_SNS_ARN_DEBUG&quot;</span>
+
+  class SNSLoggerBuilder {
+
+<span class="nc" id="L23">    var _arn_info: Option[String] = None</span>
+<span class="nc" id="L24">    var _arn_warn: Option[String] = None</span>
+<span class="nc" id="L25">    var _arn_error: Option[String] = None</span>
+<span class="nc" id="L26">    var _arn_debug: Option[String] = None</span>
+<span class="nc" id="L27">    var _name: Option[String] = None</span>
+
+    def enableLogLevel(level: String, arn: String): SNSLoggerBuilder = {
+
+<span class="nc" id="L31">      level match {</span>
+<span class="nc bnc" id="L32" title="All 6 branches missed.">        case LEVEL_INFO =&gt; _arn_info = Option(arn)</span>
+<span class="nc bnc" id="L33" title="All 6 branches missed.">        case LEVEL_WARN =&gt; _arn_warn = Option(arn)</span>
+<span class="nc bnc" id="L34" title="All 6 branches missed.">        case LEVEL_ERROR =&gt; _arn_error = Option(arn)</span>
+<span class="nc bnc" id="L35" title="All 6 branches missed.">        case LEVEL_DEBUG =&gt; _arn_debug = Option(arn)</span>
+<span class="nc" id="L36">        case _ =&gt; throw new IllegalArgumentException(s&quot;Invalid SNS Log Level: $level&quot;)</span>
+      }
+<span class="nc" id="L38">      this</span>
+    }
+
+    def forName(name: String): SNSLoggerBuilder = {
+
+<span class="nc" id="L43">      _name = Option(name)</span>
+<span class="nc" id="L44">      this</span>
+    }
+
+    def defaultLogger() = {
+
+<span class="nc" id="L49">      this</span>
+<span class="nc" id="L50">        .enableLogLevel(LEVEL_INFO, getCIAConfig(SYSTEM_ARN_INFO))</span>
+<span class="nc" id="L51">        .enableLogLevel(LEVEL_WARN, getCIAConfig(SYSTEM_ARN_WARN))</span>
+<span class="nc" id="L52">        .enableLogLevel(LEVEL_ERROR, getCIAConfig(SYSTEM_ARN_ERROR))</span>
+<span class="nc" id="L53">        .enableLogLevel(LEVEL_DEBUG, getCIAConfig(SYSTEM_ARN_DEBUG))</span>
+<span class="nc" id="L54">        .build()</span>
+    }
+
+    def build(): SNSLogger = {
+<span class="nc" id="L58">      val _sns = AmazonSNSClientBuilder.standard().withRegion(Regions.US_EAST_1).build()</span>
+<span class="nc" id="L59">      new SNSLogger(_name, _sns, _arn_info, _arn_warn, _arn_error, _arn_debug)</span>
+    }
+  }
+
+<span class="nc" id="L63">  def getBuilder() = new SNSLoggerBuilder</span>
+}
+
+<span class="nc" id="L66">class SNSLogger private(name: Option[String],</span>
+<span class="nc" id="L67">                        sns: AmazonSNS,</span>
+<span class="nc" id="L68">                        arnInfo: Option[String],</span>
+<span class="nc" id="L69">                        arnWarn: Option[String],</span>
+<span class="nc" id="L70">                        arnError: Option[String],</span>
+<span class="nc" id="L71">                        arnDebug: Option[String]) extends CIALogger {</span>
+
+  private def getRequest(level: String, arnTopic: String, msg: String, attrs: Seq[MessageAttribute]) = {
+
+<span class="nc" id="L75">    val header = s&quot;$level: CIA ${name.getOrElse(&quot;&quot;)}\n$msg&quot;</span>
+<span class="nc" id="L76">    val request = new PublishRequest()</span>
+<span class="nc" id="L77">    request.setTopicArn(arnTopic)</span>
+<span class="nc" id="L78">    request.setMessage(header)</span>
+
+<span class="nc" id="L80">    for (attr &lt;- attrs) {</span>
+<span class="nc" id="L81">      val snsAttr = new MessageAttributeValue()</span>
+<span class="nc" id="L82">      snsAttr.setDataType(&quot;String&quot;)</span>
+<span class="nc" id="L83">      snsAttr.setStringValue(attr.value.toString)</span>
+<span class="nc" id="L84">      request.addMessageAttributesEntry(attr.key, snsAttr)</span>
+    }
+<span class="nc" id="L86">    request</span>
+  }
+
+  private def log(level: String, arnTopic: Option[String], msg: String, attrs: Seq[MessageAttribute]): Unit = {
+<span class="nc bnc" id="L90" title="All 2 branches missed.">    arnTopic.foreach(arn =&gt; sns.publish(getRequest(level, arn, msg, attrs)))</span>
+  }
+
+  override def info(msg: String, attrs: MessageAttribute*): Unit = {
+<span class="nc" id="L94">    log(SNSLogger.LEVEL_INFO, arnInfo, msg, attrs)</span>
+  }
+
+  override def debug(msg: String, attrs: MessageAttribute*): Unit = {
+<span class="nc" id="L98">    log(SNSLogger.LEVEL_DEBUG, arnDebug, msg, attrs)</span>
+  }
+
+  override def error(msg: String, attrs: MessageAttribute*): Unit = {
+<span class="nc" id="L102">    log(SNSLogger.LEVEL_ERROR, arnError, msg, attrs)</span>
+  }
+
+  override def warn(msg: String, attrs: MessageAttribute*): Unit = {
+<span class="nc" id="L106">    log(SNSLogger.LEVEL_WARN, arnWarn, msg, attrs)</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

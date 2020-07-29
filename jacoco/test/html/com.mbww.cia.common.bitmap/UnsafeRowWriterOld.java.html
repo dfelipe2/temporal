@@ -1,0 +1,250 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>UnsafeRowWriterOld.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.common.bitmap</a> &gt; <span class="el_source">UnsafeRowWriterOld.java</span></div><h1>UnsafeRowWriterOld.java</h1><pre class="source lang-java linenums">package com.mbww.cia.common.bitmap;
+
+
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the &quot;License&quot;); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
+
+        import org.apache.spark.sql.catalyst.expressions.UnsafeRow;
+        import org.apache.spark.sql.types.Decimal;
+        import org.apache.spark.unsafe.Platform;
+        import org.apache.spark.unsafe.array.ByteArrayMethods;
+        import org.apache.spark.unsafe.bitset.BitSetMethods;
+        import org.apache.spark.unsafe.types.CalendarInterval;
+        import org.apache.spark.unsafe.types.UTF8String;
+
+/**
+ * A helper class to write data into global row buffer using `UnsafeRow` format.
+ *
+ * It will remember the offset of row buffer which it starts to write, and move the cursor of row
+ * buffer while writing.  If new data(can be the input record if this is the outermost writer, or
+ * nested struct if this is an inner writer) comes, the starting cursor of row buffer may be
+ * changed, so we need to call `UnsafeRowWriter.reset` before writing, to update the
+ * `startingOffset` and clear out null bits.
+ *
+ * Note that if this is the outermost writer, which means we will always write from the very
+ * beginning of the global row buffer, we don't need to update `startingOffset` and can just call
+ * `zeroOutNullBytes` before writing new data.
+ */
+<span class="pc bpc" id="L44" title="1 of 2 branches missed.">public class UnsafeRowWriterOld {</span>
+
+    private final BufferHolderOld holder;
+    // The offset of the global buffer where we start to write this row.
+    private int startingOffset;
+    private final int nullBitsSize;
+    private final int fixedSize;
+
+<span class="fc" id="L52">    public UnsafeRowWriterOld(BufferHolderOld holder, int numFields) {</span>
+<span class="fc" id="L53">        this.holder = holder;</span>
+<span class="fc" id="L54">        this.nullBitsSize = UnsafeRow.calculateBitSetWidthInBytes(numFields);</span>
+<span class="fc" id="L55">        this.fixedSize = nullBitsSize + 8 * numFields;</span>
+<span class="fc" id="L56">        this.startingOffset = holder.cursor;</span>
+<span class="fc" id="L57">    }</span>
+
+    /**
+     * Resets the `startingOffset` according to the current cursor of row buffer, and clear out null
+     * bits.  This should be called before we write a new nested struct to the row buffer.
+     */
+    public void reset() {
+<span class="nc" id="L64">        this.startingOffset = holder.cursor;</span>
+
+        // grow the global buffer to make sure it has enough space to write fixed-length data.
+<span class="nc" id="L67">        holder.grow(fixedSize);</span>
+<span class="nc" id="L68">        holder.cursor += fixedSize;</span>
+
+<span class="nc" id="L70">        zeroOutNullBytes();</span>
+<span class="nc" id="L71">    }</span>
+
+    /**
+     * Clears out null bits.  This should be called before we write a new row to row buffer.
+     */
+    public void zeroOutNullBytes() {
+<span class="nc bnc" id="L77" title="All 2 branches missed.">        for (int i = 0; i &lt; nullBitsSize; i += 8) {</span>
+<span class="nc" id="L78">            Platform.putLong(holder.buffer, startingOffset + i, 0L);</span>
+        }
+<span class="nc" id="L80">    }</span>
+
+    private void zeroOutPaddingBytes(int numBytes) {
+<span class="fc bfc" id="L83" title="All 2 branches covered.">        if ((numBytes &amp; 0x07) &gt; 0) {</span>
+<span class="fc" id="L84">            Platform.putLong(holder.buffer, holder.cursor + ((numBytes &gt;&gt; 3) &lt;&lt; 3), 0L);</span>
+        }
+<span class="fc" id="L86">    }</span>
+
+<span class="nc" id="L88">    public BufferHolderOld holder() { return holder; }</span>
+
+    public boolean isNullAt(int ordinal) {
+<span class="nc" id="L91">        return BitSetMethods.isSet(holder.buffer, startingOffset, ordinal);</span>
+    }
+
+    public void setNullAt(int ordinal) {
+<span class="nc" id="L95">        BitSetMethods.set(holder.buffer, startingOffset, ordinal);</span>
+<span class="nc" id="L96">        Platform.putLong(holder.buffer, getFieldOffset(ordinal), 0L);</span>
+<span class="nc" id="L97">    }</span>
+
+    public long getFieldOffset(int ordinal) {
+<span class="fc" id="L100">        return startingOffset + nullBitsSize + 8 * ordinal;</span>
+    }
+
+    public void setOffsetAndSize(int ordinal, long size) {
+<span class="fc" id="L104">        setOffsetAndSize(ordinal, holder.cursor, size);</span>
+<span class="fc" id="L105">    }</span>
+
+    public void setOffsetAndSize(int ordinal, long currentCursor, long size) {
+<span class="fc" id="L108">        final long relativeOffset = currentCursor - startingOffset;</span>
+<span class="fc" id="L109">        final long fieldOffset = getFieldOffset(ordinal);</span>
+<span class="fc" id="L110">        final long offsetAndSize = (relativeOffset &lt;&lt; 32) | size;</span>
+
+<span class="fc" id="L112">        Platform.putLong(holder.buffer, fieldOffset, offsetAndSize);</span>
+<span class="fc" id="L113">    }</span>
+
+    public void write(int ordinal, boolean value) {
+<span class="nc" id="L116">        final long offset = getFieldOffset(ordinal);</span>
+<span class="nc" id="L117">        Platform.putLong(holder.buffer, offset, 0L);</span>
+<span class="nc" id="L118">        Platform.putBoolean(holder.buffer, offset, value);</span>
+<span class="nc" id="L119">    }</span>
+
+    public void write(int ordinal, byte value) {
+<span class="nc" id="L122">        final long offset = getFieldOffset(ordinal);</span>
+<span class="nc" id="L123">        Platform.putLong(holder.buffer, offset, 0L);</span>
+<span class="nc" id="L124">        Platform.putByte(holder.buffer, offset, value);</span>
+<span class="nc" id="L125">    }</span>
+
+    public void write(int ordinal, short value) {
+<span class="nc" id="L128">        final long offset = getFieldOffset(ordinal);</span>
+<span class="nc" id="L129">        Platform.putLong(holder.buffer, offset, 0L);</span>
+<span class="nc" id="L130">        Platform.putShort(holder.buffer, offset, value);</span>
+<span class="nc" id="L131">    }</span>
+
+    public void write(int ordinal, int value) {
+<span class="fc" id="L134">        final long offset = getFieldOffset(ordinal);</span>
+<span class="fc" id="L135">        Platform.putLong(holder.buffer, offset, 0L);</span>
+<span class="fc" id="L136">        Platform.putInt(holder.buffer, offset, value);</span>
+<span class="fc" id="L137">    }</span>
+
+    public void write(int ordinal, long value) {
+<span class="nc" id="L140">        Platform.putLong(holder.buffer, getFieldOffset(ordinal), value);</span>
+<span class="nc" id="L141">    }</span>
+
+    public void write(int ordinal, float value) {
+<span class="nc bnc" id="L144" title="All 2 branches missed.">        if (Float.isNaN(value)) {</span>
+<span class="nc" id="L145">            value = Float.NaN;</span>
+        }
+<span class="nc" id="L147">        final long offset = getFieldOffset(ordinal);</span>
+<span class="nc" id="L148">        Platform.putLong(holder.buffer, offset, 0L);</span>
+<span class="nc" id="L149">        Platform.putFloat(holder.buffer, offset, value);</span>
+<span class="nc" id="L150">    }</span>
+
+    public void write(int ordinal, double value) {
+<span class="nc bnc" id="L153" title="All 2 branches missed.">        if (Double.isNaN(value)) {</span>
+<span class="nc" id="L154">            value = Double.NaN;</span>
+        }
+<span class="nc" id="L156">        Platform.putDouble(holder.buffer, getFieldOffset(ordinal), value);</span>
+<span class="nc" id="L157">    }</span>
+
+    public void write(int ordinal, Decimal input, int precision, int scale) {
+<span class="nc bnc" id="L160" title="All 2 branches missed.">        if (precision &lt;= Decimal.MAX_LONG_DIGITS()) {</span>
+            // make sure Decimal object has the same scale as DecimalType
+<span class="nc bnc" id="L162" title="All 2 branches missed.">            if (input.changePrecision(precision, scale)) {</span>
+<span class="nc" id="L163">                Platform.putLong(holder.buffer, getFieldOffset(ordinal), input.toUnscaledLong());</span>
+            } else {
+<span class="nc" id="L165">                setNullAt(ordinal);</span>
+            }
+        } else {
+            // grow the global buffer before writing data.
+<span class="nc" id="L169">            holder.grow(16);</span>
+
+            // zero-out the bytes
+<span class="nc" id="L172">            Platform.putLong(holder.buffer, holder.cursor, 0L);</span>
+<span class="nc" id="L173">            Platform.putLong(holder.buffer, holder.cursor + 8, 0L);</span>
+
+            // Make sure Decimal object has the same scale as DecimalType.
+            // Note that we may pass in null Decimal object to set null for it.
+<span class="nc bnc" id="L177" title="All 4 branches missed.">            if (input == null || !input.changePrecision(precision, scale)) {</span>
+<span class="nc" id="L178">                BitSetMethods.set(holder.buffer, startingOffset, ordinal);</span>
+                // keep the offset for future update
+<span class="nc" id="L180">                setOffsetAndSize(ordinal, 0L);</span>
+            } else {
+<span class="nc" id="L182">                final byte[] bytes = input.toJavaBigDecimal().unscaledValue().toByteArray();</span>
+<span class="nc bnc" id="L183" title="All 4 branches missed.">                assert bytes.length &lt;= 16;</span>
+
+                // Write the bytes to the variable length portion.
+<span class="nc" id="L186">                Platform.copyMemory(</span>
+                        bytes, Platform.BYTE_ARRAY_OFFSET, holder.buffer, holder.cursor, bytes.length);
+<span class="nc" id="L188">                setOffsetAndSize(ordinal, bytes.length);</span>
+            }
+
+            // move the cursor forward.
+<span class="nc" id="L192">            holder.cursor += 16;</span>
+        }
+<span class="nc" id="L194">    }</span>
+
+    public void write(int ordinal, UTF8String input) {
+<span class="nc" id="L197">        final int numBytes = input.numBytes();</span>
+<span class="nc" id="L198">        final int roundedSize = ByteArrayMethods.roundNumberOfBytesToNearestWord(numBytes);</span>
+
+        // grow the global buffer before writing data.
+<span class="nc" id="L201">        holder.grow(roundedSize);</span>
+
+<span class="nc" id="L203">        zeroOutPaddingBytes(numBytes);</span>
+
+        // Write the bytes to the variable length portion.
+<span class="nc" id="L206">        input.writeToMemory(holder.buffer, holder.cursor);</span>
+
+<span class="nc" id="L208">        setOffsetAndSize(ordinal, numBytes);</span>
+
+        // move the cursor forward.
+<span class="nc" id="L211">        holder.cursor += roundedSize;</span>
+<span class="nc" id="L212">    }</span>
+
+    public void write(int ordinal, byte[] input) {
+<span class="fc" id="L215">        write(ordinal, input, 0, input.length);</span>
+<span class="fc" id="L216">    }</span>
+
+    public void write(int ordinal, byte[] input, int offset, int numBytes) {
+<span class="fc" id="L219">        final int roundedSize = ByteArrayMethods.roundNumberOfBytesToNearestWord(numBytes);</span>
+
+        // grow the global buffer before writing data.
+<span class="fc" id="L222">        holder.grow(roundedSize);</span>
+
+<span class="fc" id="L224">        zeroOutPaddingBytes(numBytes);</span>
+
+        // Write the bytes to the variable length portion.
+<span class="fc" id="L227">        Platform.copyMemory(input, Platform.BYTE_ARRAY_OFFSET + offset,</span>
+                holder.buffer, holder.cursor, numBytes);
+
+<span class="fc" id="L230">        setOffsetAndSize(ordinal, numBytes);</span>
+
+        // move the cursor forward.
+<span class="fc" id="L233">        holder.cursor += roundedSize;</span>
+<span class="fc" id="L234">    }</span>
+
+    public void write(int ordinal, CalendarInterval input) {
+        // grow the global buffer before writing data.
+<span class="nc" id="L238">        holder.grow(16);</span>
+
+        // Write the months and microseconds fields of Interval to the variable length portion.
+<span class="nc" id="L241">        Platform.putLong(holder.buffer, holder.cursor, input.months);</span>
+<span class="nc" id="L242">        Platform.putLong(holder.buffer, holder.cursor + 8, input.microseconds);</span>
+
+<span class="nc" id="L244">        setOffsetAndSize(ordinal, 16);</span>
+
+        // move the cursor forward.
+<span class="nc" id="L247">        holder.cursor += 16;</span>
+<span class="nc" id="L248">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

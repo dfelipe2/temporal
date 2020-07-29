@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DslUtils.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.common.utility.util</a> &gt; <span class="el_source">DslUtils.scala</span></div><h1>DslUtils.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.common.utility.util
+
+import org.slf4j.LoggerFactory
+import scala.util.parsing.combinator.RegexParsers
+
+trait DebugRegexParsers extends RegexParsers {
+
+<span class="fc" id="L8">  val Logger = LoggerFactory.getLogger(classOf[DebugRegexParsers])</span>
+
+<span class="fc" id="L10">  class Wrap[+T](name: String, parser: Parser[T]) extends Parser[T] {</span>
+    def apply(in: Input): ParseResult[T] = {
+<span class="fc" id="L12">      val t = parser.apply(in)</span>
+<span class="fc" id="L13">      Logger.debug(s&quot;$name.apply for token ${in.first} at position ${in.pos} offset ${in.offset} returns $t&quot;)</span>
+<span class="fc" id="L14">      t</span>
+    }
+  }
+
+<span class="pc bpc" id="L18" title="1 of 2 branches missed.">  implicit def toWrapped(name: String) = new {</span>
+    /**
+      * A parser combinator used to debug the parsing of a value.
+      *
+      * @param p Parser to be debugged.
+      * @tparam T Type parameter.
+      * @return A wrapped parser which will print debug messages.
+      */
+<span class="fc" id="L26">    def !!![T](p: Parser[T]) = new Wrap(name, p)</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>

@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ValidationUtils.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">CIA</a> &gt; <a href="index.source.html" class="el_package">com.mbww.cia.qa.utils</a> &gt; <span class="el_source">ValidationUtils.scala</span></div><h1>ValidationUtils.scala</h1><pre class="source lang-java linenums">package com.mbww.cia.qa.utils
+
+import org.apache.spark.sql.types._
+import org.apache.spark.sql.DataFrame
+import org.slf4j.LoggerFactory
+
+object ValidationUtils {
+<span class="fc" id="L8">  val log = LoggerFactory.getLogger(&quot;CIA Pipeline&quot;)</span>
+
+  // validate  count of two data frame
+  def validateCount(actual:DataFrame, expected:DataFrame):Boolean={
+<span class="fc" id="L12">    val actualDFCount=actual.count()</span>
+<span class="fc" id="L13">    val expectedDFCount=expected.count()</span>
+<span class="pc bpc" id="L14" title="1 of 2 branches missed.">    if(!(actualDFCount ==expectedDFCount)) {</span>
+<span class="nc" id="L15">      throw new RuntimeException(</span>
+<span class="nc" id="L16">        s&quot;Actual file count ${actualDFCount} is not same as Expected count ${expectedDFCount} &quot;)</span>
+    }
+<span class="fc" id="L18">    log.info(  s&quot;Actual file count ${actualDFCount} is  same as Expected count ${expectedDFCount} &quot;)</span>
+<span class="fc" id="L19">    true</span>
+  }
+
+
+  // validate  Columns name  of a data frame
+  // validate  Schema Type of a data frame
+    def validateSchema(actual: StructType, expected: StructType): Boolean = {
+<span class="pc" id="L26">      actual.headOption match {</span>
+<span class="fc bfc" id="L27" title="All 2 branches covered.">        case Some(field) =&gt; {</span>
+<span class="pc bpc" id="L28" title="4 of 6 branches missed.">          if(field.dataType.typeName != &quot;struct&quot;) {</span>
+<span class="pc bpc" id="L29" title="4 of 6 branches missed.">                        expected.find(_ == field) match {</span>
+<span class="pc bpc" id="L30" title="7 of 14 branches missed.">              case Some(matchedField) =&gt; validateSchema(StructType(actual.filterNot(_ == field)), StructType(expected.filterNot(_ == field)))</span>
+<span class="nc bnc" id="L31" title="All 2 branches missed.">              case None =&gt; throw new RuntimeException(</span>
+<span class="nc" id="L32">                s&quot;Actual Schema and column name ${actual}  is not same as expected Schema and column name ${expected}  &quot;)</span>
+            }
+          } else {
+<span class="nc bnc" id="L35" title="All 14 branches missed.">            val isEqualContents = expected.find(x =&gt; x.name == field.name &amp;&amp; x.nullable == field.nullable &amp;&amp; x.dataType.typeName == &quot;struct&quot;) match {</span>
+<span class="nc bnc" id="L36" title="All 2 branches missed.">              case Some(matchedField) =&gt; validateSchema(field.dataType.asInstanceOf[StructType], matchedField.dataType.asInstanceOf[StructType])</span>
+<span class="nc bnc" id="L37" title="All 2 branches missed.">              case None =&gt; throw new RuntimeException(</span>
+<span class="nc" id="L38">                s&quot;Actual Schema and column name ${actual}  is not same as expected Schema and column name ${expected}  &quot;)</span>
+            }
+<span class="nc bnc" id="L40" title="All 14 branches missed.">            if(isEqualContents) validateSchema(StructType(actual.filterNot(_ == field)), StructType(expected.filterNot(_ == field)))</span>
+<span class="nc" id="L41">            else throw new RuntimeException(</span>
+<span class="nc" id="L42">              s&quot;Actual Schema and column name ${actual}  is not same as expected Schema and column name ${expected}  &quot;)</span>
+          }
+        }
+<span class="pc bpc" id="L45" title="2 of 4 branches missed.">        case None =&gt; expected.size == 0</span>
+      }
+<span class="fc" id="L47">    log.info(  s&quot;Actual Schema and column name ${actual}  is same as expected Schema and column name ${expected}  &quot;)</span>
+<span class="fc" id="L48">    true</span>
+  }
+
+
+  // validate  Columns Count  of a data frame
+  def validateColumnsCount(actual:DataFrame, expected:DataFrame):Boolean={
+<span class="fc" id="L54">    val actualDFColumnCount=actual.columns.length</span>
+<span class="fc" id="L55">    val expectedDFColumnCount=expected.columns.length</span>
+<span class="pc bpc" id="L56" title="1 of 2 branches missed.">    if(!(actualDFColumnCount ==expectedDFColumnCount)) {</span>
+<span class="nc" id="L57">      throw new RuntimeException(</span>
+<span class="nc" id="L58">        s&quot;Actual Columns count ${actualDFColumnCount} is not same as Expected Columns count ${expectedDFColumnCount} &quot;)</span>
+    }
+<span class="fc" id="L60">    log.info(  s&quot;Actual Columns count ${actualDFColumnCount} is  same as Expected Columns count ${expectedDFColumnCount} &quot;)</span>
+<span class="fc" id="L61">    true</span>
+  }
+<span class="fc" id="L63">}</span>
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.1.201803210924</span></div></body></html>
